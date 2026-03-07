@@ -1,0 +1,34 @@
+{
+  "name": "figma-reader",
+  "version": "0.1.0",
+  "description": "CLI tool for reading Figma design data",
+  "type": "module",
+  "bin": {
+    "figma-reader": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.30.1",
+  "dependencies": {
+    "citty": "^0.2.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

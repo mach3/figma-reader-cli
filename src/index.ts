@@ -6,8 +6,9 @@ const main = defineCommand({
     version: "0.1.0",
     description: "CLI tool for reading Figma design data",
   },
-  run() {
-    console.log("Hello, World!");
+  subCommands: {
+    login: () => import("./features/login/index.js").then((m) => m.default),
+    me: () => import("./features/me/index.js").then((m) => m.default),
   },
 });
 

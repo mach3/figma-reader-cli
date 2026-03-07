@@ -4,7 +4,7 @@
   "description": "CLI tool for reading Figma design data",
   "type": "module",
   "bin": {
-    "figma-reader": "./dist/index.mjs"
+    "figma-reader": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup",

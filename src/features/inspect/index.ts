@@ -16,10 +16,10 @@ export default defineCommand({
       required: true,
       description: 'Figma のノード URL（引用符で囲んでください 例: "https://..."）',
     },
-    json: {
+    pretty: {
       type: "boolean",
       default: false,
-      description: "JSON形式で出力",
+      description: "人間向けのテキスト形式で出力",
     },
     depth: {
       type: "string", // citty に number 型がないため string で受けて parseInt する
@@ -34,13 +34,13 @@ export default defineCommand({
   async run({ args }) {
     const urlResult = parseFigmaUrl(args.url);
     if (urlResult.isErr()) {
-      outputError(args.json, formatError(urlResult.error));
+      outputError(args.pretty, formatError(urlResult.error));
       return process.exit(1);
     }
 
     const tokenResult = await resolveToken();
     if (tokenResult.isErr()) {
-      outputError(args.json, formatError(tokenResult.error));
+      outputError(args.pretty, formatError(tokenResult.error));
       return process.exit(1);
     }
 
@@ -48,7 +48,7 @@ export default defineCommand({
     const depth = args.depth !== undefined ? Number.parseInt(args.depth, 10) : undefined;
 
     if (depth !== undefined && (Number.isNaN(depth) || depth < 1)) {
-      outputError(args.json, "--depth は正の整数を指定してください");
+      outputError(args.pretty, "--depth は正の整数を指定してください");
       return process.exit(1);
     }
 
@@ -61,16 +61,16 @@ export default defineCommand({
     });
 
     if (nodesResult.isErr()) {
-      outputError(args.json, formatError(nodesResult.error));
+      outputError(args.pretty, formatError(nodesResult.error));
       return process.exit(1);
     }
 
     const response = nodesResult.value;
 
-    if (args.json) {
-      console.log(JSON.stringify(response));
-    } else {
+    if (args.pretty) {
       formatNodesResponse(response);
+    } else {
+      console.log(JSON.stringify(response));
     }
   },
 });

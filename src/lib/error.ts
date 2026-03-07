@@ -25,11 +25,11 @@ export function formatError(error: AppError): string {
   }
 }
 
-/** JSON / テキスト形式でエラーを stderr に出力する */
-export function outputError(json: boolean, message: string): void {
-  if (json) {
-    console.error(JSON.stringify({ success: false, error: message }));
-  } else {
+/** エラーを stderr に出力する。デフォルトは JSON、pretty で人間向けテキスト */
+export function outputError(pretty: boolean, message: string): void {
+  if (pretty) {
     console.error(message);
+  } else {
+    console.error(JSON.stringify({ success: false, error: message }));
   }
 }

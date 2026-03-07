@@ -10,30 +10,30 @@ export default defineCommand({
     description: "Figma のユーザー情報を取得する",
   },
   args: {
-    json: {
+    pretty: {
       type: "boolean",
       default: false,
-      description: "JSON形式で出力",
+      description: "人間向けのテキスト形式で出力",
     },
   },
   async run({ args }) {
     const tokenResult = await resolveToken();
     if (tokenResult.isErr()) {
-      outputError(args.json, formatError(tokenResult.error));
+      outputError(args.pretty, formatError(tokenResult.error));
       return process.exit(1);
     }
 
     const meResult = await getMe(tokenResult.value);
     if (meResult.isErr()) {
-      outputError(args.json, formatError(meResult.error));
+      outputError(args.pretty, formatError(meResult.error));
       return process.exit(1);
     }
 
     const user = meResult.value;
-    if (args.json) {
-      console.log(JSON.stringify(user));
-    } else {
+    if (args.pretty) {
       formatUser(user);
+    } else {
+      console.log(JSON.stringify(user));
     }
   },
 });

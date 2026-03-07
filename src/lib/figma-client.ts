@@ -53,6 +53,94 @@ export type FigmaImagesResponse = {
   images: Record<string, string | null>;
 };
 
+/** Variables API: 変数の値（カラー） */
+export type FigmaColor = {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+};
+
+/** Variables API: 他の変数へのエイリアス参照 */
+export type FigmaVariableAlias = {
+  type: "VARIABLE_ALIAS";
+  id: string;
+};
+
+/** Variables API: 変数の値 */
+export type FigmaVariableValue = boolean | number | string | FigmaColor | FigmaVariableAlias;
+
+/** Variables API: 変数 */
+export type FigmaVariable = {
+  id: string;
+  name: string;
+  key: string;
+  variableCollectionId: string;
+  resolvedType: "BOOLEAN" | "FLOAT" | "STRING" | "COLOR";
+  valuesByMode: Record<string, FigmaVariableValue>;
+  remote: boolean;
+  description: string;
+  hiddenFromPublishing: boolean;
+  scopes: string[];
+  codeSyntax: Record<string, string>;
+  [key: string]: unknown;
+};
+
+/** Variables API: 公開済み変数（値情報なし） */
+export type FigmaPublishedVariable = {
+  id: string;
+  subscribed_id: string;
+  name: string;
+  key: string;
+  variableCollectionId: string;
+  resolvedType: "BOOLEAN" | "FLOAT" | "STRING" | "COLOR";
+  updatedAt: string;
+  [key: string]: unknown;
+};
+
+/** Variables API: 変数コレクション */
+export type FigmaVariableCollection = {
+  id: string;
+  name: string;
+  key: string;
+  modes: { modeId: string; name: string }[];
+  defaultModeId: string;
+  remote: boolean;
+  hiddenFromPublishing: boolean;
+  variableIds: string[];
+  [key: string]: unknown;
+};
+
+/** Variables API: 公開済みコレクション */
+export type FigmaPublishedVariableCollection = {
+  id: string;
+  subscribed_id: string;
+  name: string;
+  key: string;
+  updatedAt: string;
+  [key: string]: unknown;
+};
+
+/** GET /v1/files/:key/variables/local のレスポンス */
+export type FigmaLocalVariablesResponse = {
+  status: number;
+  error: boolean;
+  meta: {
+    variables: Record<string, FigmaVariable>;
+    variableCollections: Record<string, FigmaVariableCollection>;
+  };
+};
+
+/** GET /v1/files/:key/variables/published のレスポンス */
+export type FigmaPublishedVariablesResponse = {
+  status: number;
+  error: boolean;
+  meta: {
+    variables: Record<string, FigmaPublishedVariable>;
+    variableCollections: Record<string, FigmaPublishedVariableCollection>;
+  };
+};
+
 /** Figma API に GET リクエストを送る */
 export async function figmaGet<T>(token: string, path: string): Promise<Result<T, AppError>> {
   try {

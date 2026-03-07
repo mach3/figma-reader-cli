@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFigmaUrl } from "./figma-url.js";
+import { parseFigmaFileUrl, parseFigmaUrl } from "./figma-url.js";
 
 describe("parseFigmaUrl", () => {
   it("標準的な design URL を解析できる", () => {
@@ -59,5 +59,48 @@ describe("parseFigmaUrl", () => {
       type: "INVALID_URL",
       message: expect.stringContaining("node-id"),
     });
+  });
+});
+
+describe("parseFigmaFileUrl", () => {
+  it("標準的な design URL から fileKey を抽出できる", () => {
+    const result = parseFigmaFileUrl("https://www.figma.com/design/ABC123/MyFile");
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap()).toEqual({ fileKey: "ABC123" });
+  });
+
+  it("node-id 付き URL でも fileKey を抽出できる", () => {
+    const result = parseFigmaFileUrl("https://www.figma.com/design/ABC123/MyFile?node-id=1-23");
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().fileKey).toBe("ABC123");
+  });
+
+  it("figma.com (www なし) も解析できる", () => {
+    const result = parseFigmaFileUrl("https://figma.com/design/ABC123/MyFile");
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().fileKey).toBe("ABC123");
+  });
+
+  it("branch URL の場合は branchKey を fileKey として使う", () => {
+    const result = parseFigmaFileUrl("https://www.figma.com/design/ABC123/branch/BRANCH456/MyFile");
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().fileKey).toBe("BRANCH456");
+  });
+
+  it("不正な URL でエラーを返す", () => {
+    const result = parseFigmaFileUrl("not-a-url");
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr().type).toBe("INVALID_URL");
+  });
+
+  it("Figma 以外のホストでエラーを返す", () => {
+    const result = parseFigmaFileUrl("https://example.com/design/ABC/File");
+    expect(result.isErr()).toBe(true);
+    expect(result._unsafeUnwrapErr().type).toBe("INVALID_URL");
+  });
+
+  it("/design/ 以外のパスでエラーを返す", () => {
+    const result = parseFigmaFileUrl("https://www.figma.com/board/ABC123/MyFile");
+    expect(result.isErr()).toBe(true);
   });
 });

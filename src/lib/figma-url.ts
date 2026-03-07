@@ -7,15 +7,14 @@ export type FigmaUrlParams = {
   nodeId: string;
 };
 
-/**
- * Figma のデザイン URL を解析して fileKey と nodeId を抽出する。
- * node-id の `-` は `:` に変換する。
- *
- * 対応形式:
- * - https://www.figma.com/design/:fileKey/:fileName?node-id=:nodeId
- * - https://www.figma.com/design/:fileKey/branch/:branchKey/:fileName?node-id=:nodeId
- */
-export function parseFigmaUrl(url: string): Result<FigmaUrlParams, AppError> {
+export type FigmaFileUrlParams = {
+  fileKey: string;
+};
+
+/** URL パース・ホスト検証・fileKey 抽出の共通処理 */
+function parseDesignUrl(
+  url: string,
+): Result<{ fileKey: string; searchParams: URLSearchParams }, AppError> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -39,7 +38,26 @@ export function parseFigmaUrl(url: string): Result<FigmaUrlParams, AppError> {
   // ブランチ: /design/:fileKey/branch/:branchKey/:fileName → segments[3] が branchKey
   const fileKey = segments[2] === "branch" && segments[3] ? segments[3] : segments[1];
 
-  const nodeIdParam = parsed.searchParams.get("node-id");
+  return ok({ fileKey, searchParams: parsed.searchParams });
+}
+
+/**
+ * Figma のデザイン URL を解析して fileKey と nodeId を抽出する。
+ * node-id の `-` は `:` に変換する。
+ *
+ * 対応形式:
+ * - https://www.figma.com/design/:fileKey/:fileName?node-id=:nodeId
+ * - https://www.figma.com/design/:fileKey/branch/:branchKey/:fileName?node-id=:nodeId
+ */
+export function parseFigmaUrl(url: string): Result<FigmaUrlParams, AppError> {
+  const baseResult = parseDesignUrl(url);
+  if (baseResult.isErr()) {
+    return baseResult;
+  }
+
+  const { fileKey, searchParams } = baseResult.value;
+
+  const nodeIdParam = searchParams.get("node-id");
   if (!nodeIdParam) {
     return err({ type: "INVALID_URL", message: "node-id パラメータがありません" });
   }
@@ -47,4 +65,21 @@ export function parseFigmaUrl(url: string): Result<FigmaUrlParams, AppError> {
   const nodeId = nodeIdParam.replace(/-/g, ":");
 
   return ok({ fileKey, nodeId });
+}
+
+/**
+ * Figma の URL を解析して fileKey を抽出する。
+ * node-id は不要。file-level API（Variables 等）向け。
+ *
+ * 対応形式:
+ * - https://www.figma.com/design/:fileKey/:fileName
+ * - https://www.figma.com/design/:fileKey/branch/:branchKey/:fileName
+ */
+export function parseFigmaFileUrl(url: string): Result<FigmaFileUrlParams, AppError> {
+  const baseResult = parseDesignUrl(url);
+  if (baseResult.isErr()) {
+    return baseResult;
+  }
+
+  return ok({ fileKey: baseResult.value.fileKey });
 }

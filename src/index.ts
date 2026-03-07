@@ -10,6 +10,7 @@ const main = defineCommand({
     login: () => import("./features/login/index.js").then((m) => m.default),
     me: () => import("./features/me/index.js").then((m) => m.default),
     inspect: () => import("./features/inspect/index.js").then((m) => m.default),
+    export: () => import("./features/export/index.js").then((m) => m.default),
   },
 });
 

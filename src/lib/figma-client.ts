@@ -47,6 +47,12 @@ export type FigmaNodesResponse = {
   nodes: Record<string, FigmaNodeInfo | null>;
 };
 
+/** GET /v1/images/:key のレスポンス */
+export type FigmaImagesResponse = {
+  err: string | null;
+  images: Record<string, string | null>;
+};
+
 /** Figma API に GET リクエストを送る */
 export async function figmaGet<T>(token: string, path: string): Promise<Result<T, AppError>> {
   try {

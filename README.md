@@ -1,104 +1,106 @@
 # figma-reader
 
-Figma のデザインデータをコマンドラインから取得・処理する CLI ツール。
-AI エージェントがサブプロセスとして実行し、正確で必要十分なデザイン情報を取得することを主な目的として設計されています。
+A CLI tool for retrieving and processing Figma design data from the command line.
+Primarily designed for AI agents to execute as a subprocess and obtain accurate, essential design information.
 
-## 特徴
+[日本語版 README](./README-ja.md)
 
-- **デザインの取得・閲覧**: Figma URL からノードツリー、スタイル、コンポーネント情報を取得
-- **画像エクスポート**: PNG / SVG / PDF 形式でのエクスポート、ファイルダウンロードに対応
-- **AI エージェント向け**: デフォルトで JSON 出力。サブプロセス実行を前提とした設計
-- **人間にも使いやすい**: `--pretty` フラグで人間向けのテキスト出力に切り替え可能
+## Features
 
-## インストール
+- **Design Retrieval**: Fetch node trees, styles, and component information from Figma URLs
+- **Image Export**: Export in PNG / SVG / PDF formats with file download support
+- **AI Agent Friendly**: JSON output by default, designed for subprocess execution
+- **Human Friendly**: Switch to human-readable text output with the `--pretty` flag
+
+## Installation
 
 ```bash
 npm install -g figma-reader
 ```
 
-## セットアップ
+## Setup
 
-Figma API を利用するには [Personal Access Token](https://www.figma.com/developers/api#access-tokens) が必要です。
+A [Personal Access Token](https://www.figma.com/developers/api#access-tokens) is required to use the Figma API.
 
-### 方法 1: `login` コマンド（推奨）
+### Option 1: `login` command (Recommended)
 
-対話的にトークンを入力し、設定ファイル（`~/.config/figma-reader/config.json`）に保存します。
+Interactively enter your token and save it to a config file (`~/.config/figma-reader/config.json`).
 
 ```bash
 figma-reader login
 figma-reader login --pretty
 ```
 
-| オプション | 説明 |
-|-----------|------|
-| `--pretty` | 人間向けのテキスト形式で出力 |
+| Option | Description |
+|--------|-------------|
+| `--pretty` | Output in human-readable text format |
 
-### 方法 2: 環境変数
+### Option 2: Environment variable
 
-環境変数 `FIGMA_TOKEN` を設定します。環境変数は設定ファイルより優先されます。
+Set the `FIGMA_TOKEN` environment variable. Environment variables take priority over the config file.
 
 ```bash
 export FIGMA_TOKEN="figd_xxxxxxxxxxxx"
 ```
 
-## 使い方
+## Usage
 
-### `me` - ユーザー情報の取得
+### `me` - Get user info
 
-認証済みユーザーの情報を表示します。
+Display the authenticated user's information.
 
 ```bash
 figma-reader me
 figma-reader me --pretty
 ```
 
-### `inspect` - デザインコンテキストの取得
+### `inspect` - Get design context
 
-Figma ノード URL からデザイン情報（ノードツリー・スタイル・コンポーネント）を取得します。
+Retrieve design information (node tree, styles, components) from a Figma node URL.
 
 ```bash
 figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 ```
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--pretty` | 人間向けのツリー表示で出力 | `false` |
-| `--depth <N>` | ノードツリーの深さを制限（正の整数） | 制限なし |
-| `--geometry` | ベクターデータ（パス情報）を含める | `false` |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--pretty` | Output as a human-readable tree view | `false` |
+| `--depth <N>` | Limit node tree depth (positive integer) | No limit |
+| `--geometry` | Include vector data (path information) | `false` |
 
-### `export` - 画像エクスポート
+### `export` - Export images
 
-Figma ノードを画像としてエクスポートします。
+Export Figma nodes as images.
 
 ```bash
-# URL を取得
+# Get export URL
 figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 
-# SVG 形式でファイルにダウンロード
+# Download as SVG file
 figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --format svg --download
 
-# スケール指定・出力先指定
+# With scale and output directory
 figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --scale 2 --download --output ./images
 ```
 
-| オプション | 説明 | デフォルト |
-|-----------|------|-----------|
-| `--format <fmt>` | 出力形式（`png`, `svg`, `pdf`） | `png` |
-| `--scale <N>` | スケール（0.01〜4、png/pdf のみ） | `1` |
-| `--ids <ids>` | 追加ノード ID（カンマ区切り） | - |
-| `--download` | ファイルとしてダウンロード | `false` |
-| `--output <dir>` | ダウンロード先ディレクトリ | `.` |
-| `--pretty` | 人間向けのテキスト形式で出力 | `false` |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | Output format (`png`, `svg`, `pdf`) | `png` |
+| `--scale <N>` | Scale (0.01-4, png/pdf only) | `1` |
+| `--ids <ids>` | Additional node IDs (comma-separated) | - |
+| `--download` | Download as files | `false` |
+| `--output <dir>` | Download directory | `.` |
+| `--pretty` | Output in human-readable text format | `false` |
 
-## AI エージェント連携
+## AI Agent Integration
 
-このツールは AI エージェントからの利用を前提に設計されています。
+This tool is designed for use by AI agents.
 
-- **デフォルトで JSON 出力**: すべてのコマンドはデフォルトで機械可読な JSON を stdout に出力します
-- **エラー出力**: エラーは JSON 形式で stderr に出力されます
-- **exit code**: 成功時は `0`、失敗時は `1` を返します
-- **トークン設定**: 環境変数 `FIGMA_TOKEN` での認証が推奨です
+- **JSON by default**: All commands output machine-readable JSON to stdout
+- **Error output**: Errors are output in JSON format to stderr
+- **Exit codes**: Returns `0` on success, `1` on failure
+- **Token setup**: Authentication via `FIGMA_TOKEN` environment variable is recommended
 
-## ライセンス
+## License
 
 [MIT](./LICENSE)

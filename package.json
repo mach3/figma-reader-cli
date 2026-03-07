@@ -1,6 +1,6 @@
 {
   "name": "figma-reader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI tool for reading Figma design data",
   "type": "module",
   "bin": {
@@ -18,7 +18,11 @@
   "files": [
     "dist"
   ],
-  "keywords": ["figma", "cli", "design"],
+  "keywords": [
+    "figma",
+    "cli",
+    "design"
+  ],
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.30.1",

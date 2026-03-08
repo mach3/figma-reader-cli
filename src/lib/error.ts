@@ -15,13 +15,8 @@ export function formatError(error: AppError): string {
       return "設定ファイルの読み込みに失敗しました";
     case "CONFIG_WRITE_ERROR":
       return "設定ファイルの書き込みに失敗しました";
-    case "API_ERROR": {
-      const base = `Figma API エラー (${error.status}): ${error.message}`;
-      if (error.retryAfter !== undefined) {
-        return `${base}（${error.retryAfter} 秒後にリトライしてください）`;
-      }
-      return base;
-    }
+    case "API_ERROR":
+      return `Figma API エラー (${error.status}): ${error.message}`;
     case "NETWORK_ERROR":
       return "ネットワークエラーが発生しました";
     case "UNAUTHENTICATED":
@@ -39,6 +34,9 @@ export function outputError(pretty: boolean, error: AppError): void {
 
   if (pretty) {
     console.error(message);
+    if (error.type === "API_ERROR" && error.retryAfter !== undefined) {
+      console.error(`${error.retryAfter} 秒後にリトライしてください`);
+    }
   } else {
     const json =
       error.type === "API_ERROR" && error.retryAfter !== undefined

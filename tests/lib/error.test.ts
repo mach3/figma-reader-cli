@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { type AppError, formatError, outputError } from "../../src/lib/error.js";
 
 describe("formatError", () => {
-  it("API_ERROR に retryAfter がある場合はリトライ情報を含める", () => {
+  it("API_ERROR は retryAfter の有無に関わらず同じメッセージ", () => {
     const error: AppError = { type: "API_ERROR", status: 429, message: "Rate limited", retryAfter: 30 };
-    expect(formatError(error)).toBe("Figma API エラー (429): Rate limited（30 秒後にリトライしてください）");
+    expect(formatError(error)).toBe("Figma API エラー (429): Rate limited");
   });
 
   it("API_ERROR に retryAfter がない場合は通常のメッセージ", () => {
@@ -23,7 +23,7 @@ describe("outputError", () => {
     expect(spy).toHaveBeenCalledWith(
       JSON.stringify({
         success: false,
-        error: "Figma API エラー (429): Rate limited（30 秒後にリトライしてください）",
+        error: "Figma API エラー (429): Rate limited",
         retryAfter: 30,
       }),
     );
@@ -59,9 +59,8 @@ describe("outputError", () => {
 
     outputError(true, error);
 
-    expect(spy).toHaveBeenCalledWith(
-      "Figma API エラー (429): Rate limited（30 秒後にリトライしてください）",
-    );
+    expect(spy).toHaveBeenNthCalledWith(1, "Figma API エラー (429): Rate limited");
+    expect(spy).toHaveBeenNthCalledWith(2, "30 秒後にリトライしてください");
     spy.mockRestore();
   });
 });

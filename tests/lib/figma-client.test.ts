@@ -32,15 +32,47 @@ describe("figmaGet", () => {
       ok: false,
       status: 403,
       text: () => Promise.resolve("Forbidden"),
+      headers: new Headers(),
+    });
+
+    const result = await figmaGet("token", "/v1/me");
+    expect(result.isErr()).toBe(true);
+    const errVal = result._unsafeUnwrapErr();
+    expect(errVal).toEqual({ type: "API_ERROR", status: 403, message: "Forbidden" });
+    expect(errVal).not.toHaveProperty("retryAfter");
+  });
+
+  it("429 エラー時に Retry-After ヘッダーを retryAfter に含める", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: () => Promise.resolve("Rate limited"),
+      headers: new Headers({ "retry-after": "30" }),
     });
 
     const result = await figmaGet("token", "/v1/me");
     expect(result.isErr()).toBe(true);
     expect(result._unsafeUnwrapErr()).toEqual({
       type: "API_ERROR",
-      status: 403,
-      message: "Forbidden",
+      status: 429,
+      message: "Rate limited",
+      retryAfter: 30,
     });
+  });
+
+  it("Retry-After ヘッダーが無効な値の場合は retryAfter が undefined になる", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: () => Promise.resolve("Rate limited"),
+      headers: new Headers({ "retry-after": "invalid" }),
+    });
+
+    const result = await figmaGet("token", "/v1/me");
+    expect(result.isErr()).toBe(true);
+    const errVal = result._unsafeUnwrapErr();
+    expect(errVal).toEqual({ type: "API_ERROR", status: 429, message: "Rate limited" });
+    expect(errVal).not.toHaveProperty("retryAfter");
   });
 
   it("ネットワークエラー時に NETWORK_ERROR を返す", async () => {

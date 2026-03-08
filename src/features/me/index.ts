@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { resolveToken } from "../../lib/config.js";
-import { formatError, outputError } from "../../lib/error.js";
+import { outputError } from "../../lib/error.js";
 import type { FigmaUser } from "../../lib/figma-client.js";
 import { getMe } from "./me.js";
 
@@ -19,13 +19,13 @@ export default defineCommand({
   async run({ args }) {
     const tokenResult = await resolveToken();
     if (tokenResult.isErr()) {
-      outputError(args.pretty, formatError(tokenResult.error));
+      outputError(args.pretty, tokenResult.error);
       return process.exit(1);
     }
 
     const meResult = await getMe(tokenResult.value);
     if (meResult.isErr()) {
-      outputError(args.pretty, formatError(meResult.error));
+      outputError(args.pretty, meResult.error);
       return process.exit(1);
     }
 

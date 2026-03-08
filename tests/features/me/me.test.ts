@@ -34,6 +34,7 @@ describe("getMe", () => {
       ok: false,
       status: 401,
       text: () => Promise.resolve("Unauthorized"),
+      headers: new Headers(),
     });
 
     const result = await getMe("bad-token");

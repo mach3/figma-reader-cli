@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { resolveToken } from "../../lib/config.js";
-import { formatError, outputError } from "../../lib/error.js";
+import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
 import { parseFigmaUrl } from "../../lib/figma-url.js";
 import { getNodes } from "./inspect.js";
@@ -34,13 +34,13 @@ export default defineCommand({
   async run({ args }) {
     const urlResult = parseFigmaUrl(args.url);
     if (urlResult.isErr()) {
-      outputError(args.pretty, formatError(urlResult.error));
+      outputError(args.pretty, urlResult.error);
       return process.exit(1);
     }
 
     const tokenResult = await resolveToken();
     if (tokenResult.isErr()) {
-      outputError(args.pretty, formatError(tokenResult.error));
+      outputError(args.pretty, tokenResult.error);
       return process.exit(1);
     }
 
@@ -48,7 +48,10 @@ export default defineCommand({
     const depth = args.depth !== undefined ? Number.parseInt(args.depth, 10) : undefined;
 
     if (depth !== undefined && (Number.isNaN(depth) || depth < 1)) {
-      outputError(args.pretty, "--depth は正の整数を指定してください");
+      outputError(args.pretty, {
+        type: "CUSTOM_ERROR",
+        message: "--depth は正の整数を指定してください",
+      });
       return process.exit(1);
     }
 
@@ -61,7 +64,7 @@ export default defineCommand({
     });
 
     if (nodesResult.isErr()) {
-      outputError(args.pretty, formatError(nodesResult.error));
+      outputError(args.pretty, nodesResult.error);
       return process.exit(1);
     }
 

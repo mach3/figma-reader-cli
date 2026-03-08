@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { defineCommand } from "citty";
 import { readConfig, writeConfig } from "../../lib/config.js";
-import { formatError, outputError } from "../../lib/error.js";
+import { outputError } from "../../lib/error.js";
 
 export default defineCommand({
   meta: {
@@ -22,20 +22,20 @@ export default defineCommand({
 
       const trimmed = token.trim();
       if (!trimmed) {
-        outputError(args.pretty, "トークンが空です");
+        outputError(args.pretty, { type: "CUSTOM_ERROR", message: "トークンが空です" });
         return process.exit(1);
       }
 
       // 既存の config を読み込んでマージ
       const configResult = await readConfig();
       if (configResult.isErr()) {
-        outputError(args.pretty, formatError(configResult.error));
+        outputError(args.pretty, configResult.error);
         return process.exit(1);
       }
 
       const writeResult = await writeConfig({ ...configResult.value, token: trimmed });
       if (writeResult.isErr()) {
-        outputError(args.pretty, formatError(writeResult.error));
+        outputError(args.pretty, writeResult.error);
         return process.exit(1);
       }
 

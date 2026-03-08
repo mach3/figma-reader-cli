@@ -1,6 +1,6 @@
 import { defineCommand } from "citty";
 import { resolveToken } from "../../lib/config.js";
-import { formatError, outputError } from "../../lib/error.js";
+import { outputError } from "../../lib/error.js";
 import { parseFigmaUrl } from "../../lib/figma-url.js";
 import { type DownloadSummary, downloadImages, getImages, type ImageFormat } from "./export.js";
 
@@ -50,22 +50,22 @@ export default defineCommand({
   async run({ args }) {
     const urlResult = parseFigmaUrl(args.url);
     if (urlResult.isErr()) {
-      outputError(args.pretty, formatError(urlResult.error));
+      outputError(args.pretty, urlResult.error);
       return process.exit(1);
     }
 
     const tokenResult = await resolveToken();
     if (tokenResult.isErr()) {
-      outputError(args.pretty, formatError(tokenResult.error));
+      outputError(args.pretty, tokenResult.error);
       return process.exit(1);
     }
 
     // format バリデーション
     if (!VALID_FORMATS.includes(args.format as ImageFormat)) {
-      outputError(
-        args.pretty,
-        `--format は ${VALID_FORMATS.join(", ")} のいずれかを指定してください`,
-      );
+      outputError(args.pretty, {
+        type: "CUSTOM_ERROR",
+        message: `--format は ${VALID_FORMATS.join(", ")} のいずれかを指定してください`,
+      });
       return process.exit(1);
     }
     const format = args.format as ImageFormat;
@@ -73,7 +73,10 @@ export default defineCommand({
     // scale バリデーション
     const scale = Number.parseFloat(args.scale);
     if (Number.isNaN(scale) || scale < 0.01 || scale > 4) {
-      outputError(args.pretty, "--scale は 0.01〜4 の範囲で指定してください");
+      outputError(args.pretty, {
+        type: "CUSTOM_ERROR",
+        message: "--scale は 0.01〜4 の範囲で指定してください",
+      });
       return process.exit(1);
     }
 
@@ -84,7 +87,7 @@ export default defineCommand({
       nodeIds.push(...args.ids.split(",").map((id) => id.trim()));
     }
     if (nodeIds.length === 0) {
-      outputError(args.pretty, "ノード ID が指定されていません");
+      outputError(args.pretty, { type: "CUSTOM_ERROR", message: "ノード ID が指定されていません" });
       return process.exit(1);
     }
 
@@ -97,7 +100,7 @@ export default defineCommand({
     });
 
     if (imagesResult.isErr()) {
-      outputError(args.pretty, formatError(imagesResult.error));
+      outputError(args.pretty, imagesResult.error);
       return process.exit(1);
     }
 
@@ -107,7 +110,7 @@ export default defineCommand({
     if (args.download) {
       const downloadResult = await downloadImages(images, format, args.output);
       if (downloadResult.isErr()) {
-        outputError(args.pretty, formatError(downloadResult.error));
+        outputError(args.pretty, downloadResult.error);
         return process.exit(1);
       }
 

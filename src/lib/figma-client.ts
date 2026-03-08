@@ -53,6 +53,14 @@ export type FigmaImagesResponse = {
   images: Record<string, string | null>;
 };
 
+/** Retry-After ヘッダーを秒数として解析する。無効な値の場合は undefined を返す */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  return Number.parseInt(trimmed, 10);
+}
+
 /** Figma API に GET リクエストを送る */
 export async function figmaGet<T>(token: string, path: string): Promise<Result<T, AppError>> {
   try {
@@ -62,7 +70,16 @@ export async function figmaGet<T>(token: string, path: string): Promise<Result<T
 
     if (!response.ok) {
       const body = await response.text();
-      return err({ type: "API_ERROR", status: response.status, message: body });
+      const retryAfter =
+        response.status === 429 || response.status === 503
+          ? parseRetryAfter(response.headers.get("retry-after"))
+          : undefined;
+      return err({
+        type: "API_ERROR",
+        status: response.status,
+        message: body,
+        ...(retryAfter !== undefined && { retryAfter }),
+      });
     }
 
     const data = (await response.json()) as T;

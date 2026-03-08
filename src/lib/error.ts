@@ -2,10 +2,11 @@
 export type AppError =
   | { type: "CONFIG_READ_ERROR"; cause: unknown }
   | { type: "CONFIG_WRITE_ERROR"; cause: unknown }
-  | { type: "API_ERROR"; status: number; message: string }
+  | { type: "API_ERROR"; status: number; message: string; retryAfter?: number }
   | { type: "NETWORK_ERROR"; cause: unknown }
   | { type: "UNAUTHENTICATED" }
-  | { type: "INVALID_URL"; message: string };
+  | { type: "INVALID_URL"; message: string }
+  | { type: "CUSTOM_ERROR"; message: string };
 
 /** AppError から人間向けのメッセージを生成する */
 export function formatError(error: AppError): string {
@@ -22,14 +23,25 @@ export function formatError(error: AppError): string {
       return "トークンが設定されていません。`figma-reader login` を実行してください";
     case "INVALID_URL":
       return `無効な Figma URL です: ${error.message}`;
+    case "CUSTOM_ERROR":
+      return error.message;
   }
 }
 
 /** エラーを stderr に出力する。デフォルトは JSON、pretty で人間向けテキスト */
-export function outputError(pretty: boolean, message: string): void {
+export function outputError(pretty: boolean, error: AppError): void {
+  const message = formatError(error);
+
   if (pretty) {
     console.error(message);
+    if (error.type === "API_ERROR" && error.retryAfter !== undefined) {
+      console.error(`${error.retryAfter} 秒後にリトライしてください`);
+    }
   } else {
-    console.error(JSON.stringify({ success: false, error: message }));
+    const json =
+      error.type === "API_ERROR" && error.retryAfter !== undefined
+        ? { success: false, error: message, retryAfter: error.retryAfter }
+        : { success: false, error: message };
+    console.error(JSON.stringify(json));
   }
 }

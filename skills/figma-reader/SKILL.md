@@ -1,99 +1,167 @@
 ---
 name: figma-reader
-description: >
-  Retrieve Figma design structure/style information and export images.
-  Uses the figma-reader CLI to fetch design data via the Figma REST API.
-  Use in the following situations:
-  (1) When retrieving design structure or style information from a Figma URL,
-  (2) When exporting images (PNG/SVG/PDF) from Figma designs,
-  (3) When the user asks about figma-reader setup or login.
-  Trigger when the user shares a Figma URL or mentions "from Figma" or "from the design".
-  Component implementation and codebase analysis are out of scope. Delegate implementation to /feature-dev.
+description: Retrieve Figma design structure, style information, and export images via CLI. Use when the user shares a Figma URL, mentions "from Figma" or "from the design", or asks about figma-reader setup.
 allowed-tools: Bash(figma-reader:*)
 ---
 
-# figma-reader
+# Figma Design Data with figma-reader
 
-Retrieve Figma design information and export images using the `figma-reader` CLI.
-
-**Component implementation is out of scope for this skill.** After retrieving design information, suggest `/feature-dev` to the user if implementation is needed.
-
-## Running the CLI
-
-Check if globally installed, otherwise use `npx`:
+## Quick start
 
 ```bash
-# Try global command first
+# check authentication
 figma-reader me
-# If not found
-npx figma-reader me
+# get design structure from a Figma URL
+figma-reader inspect "https://www.figma.com/design/XXXXX/File-Name?node-id=1:2"
+# export as PNG
+figma-reader export "https://www.figma.com/design/XXXXX/File-Name?node-id=1:2" --format png --scale 2 --download --output ./assets
 ```
 
-Use whichever method works for subsequent commands.
+## Commands
 
-## Authentication
+### Authentication
 
-Flow for first-time setup or authentication errors:
+```bash
+figma-reader login
+figma-reader me
+figma-reader me --pretty
+```
 
-1. Run `figma-reader me` to check authentication status
-2. If it fails, ask the user to run `figma-reader login` (requires interactive input)
-3. Token is a [Figma Personal Access Token](https://www.figma.com/developers/api#access-tokens) obtained from Figma settings
-4. After login, verify with `me` again
+`login` is interactive — do not run it directly. Ask the user to run it.
+Token is a [Figma Personal Access Token](https://www.figma.com/developers/api#access-tokens) from Figma settings.
 
-`login` is an interactive command — Claude should not run it directly. Ask the user to do it.
-
-## Workflow 1: Retrieving Design Information
-
-Retrieve design structure and style information from a Figma URL.
+### Inspect
 
 ```bash
 figma-reader inspect "<figma-url>"
+figma-reader inspect "<figma-url>" --depth 3
+figma-reader inspect "<figma-url>" --geometry
+figma-reader inspect "<figma-url>" --pretty
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--pretty` | Output in human-readable tree view format | `false` |
-| `--depth <N>` | Limit node tree depth (positive integer) | No limit |
-| `--geometry` | Include vector data (path information) | `false` |
+### Export
 
-### Reading the inspect output
+```bash
+figma-reader export "<figma-url>"
+figma-reader export "<figma-url>" --format svg --download --output ./icons
+figma-reader export "<figma-url>" --format png --scale 2 --download --output ./assets
+figma-reader export "<figma-url>" --format pdf --download
+figma-reader export "<figma-url>" --ids "1:2,3:4" --format svg --download
+```
 
-Key fields in the JSON output:
-- `nodes`: Node tree (layer structure, type, size, position)
-- `styles`: Colors, text styles, effects
-- `components`: Component names and properties
+### Install
 
-Do not specify `--depth` by default. Only use `--depth 3`–`5` if the output is too large.
+```bash
+figma-reader install
+figma-reader install --pretty
+```
+
+## Output format
+
+All commands output JSON by default (machine-readable). Use `--pretty` only when showing results to the user.
+
+### inspect output
+
+```json
+{
+  "name": "My Design File",
+  "lastModified": "2026-03-01T12:00:00Z",
+  "editorType": "figma",
+  "nodes": {
+    "1:2": {
+      "document": {
+        "id": "1:2",
+        "name": "Card",
+        "type": "FRAME",
+        "absoluteBoundingBox": { "x": 0, "y": 0, "width": 320, "height": 200 },
+        "children": [
+          {
+            "id": "1:3",
+            "name": "Title",
+            "type": "TEXT",
+            "characters": "Hello World",
+            "style": { "fontFamily": "Inter", "fontSize": 16, "fontWeight": 600 }
+          }
+        ]
+      },
+      "components": {},
+      "styles": {}
+    }
+  }
+}
+```
 
 See [references/inspect-output.md](references/inspect-output.md) for detailed field descriptions.
 
-## Workflow 2: Image Export
+Do not specify `--depth` by default. Only use `--depth 3`–`5` if the output is too large.
 
-```bash
-figma-reader export "<figma-url>" --format svg --download --output <destination>
-figma-reader export "<figma-url>" --format png --scale 2 --download --output <destination>
-figma-reader export "<figma-url>" --ids "1-2,3-4" --format svg --download
+### export output (URL mode)
+
+```json
+{ "images": { "1:2": "https://figma-alpha-api.s3.us-west-2.amazonaws.com/images/..." } }
 ```
 
-Match the destination to the project's directory structure.
+### export output (download mode)
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--format` | `png`, `svg`, `pdf` | `png` |
-| `--scale` | Scale 0.01-4 (png/pdf only) | `1` |
-| `--ids` | Additional node IDs (comma-separated) | - |
-| `--download` | Download as files | `false` |
-| `--output` | Download directory | `.` |
+```json
+{
+  "successes": [{ "nodeId": "1:2", "filePath": "./assets/1-2.png" }],
+  "failures": []
+}
+```
 
-### Choosing a format
+### me output
+
+```json
+{ "id": "12345", "email": "user@example.com", "handle": "username", "img_url": "https://..." }
+```
+
+## Error handling
+
+Errors are written to **stderr** as JSON with exit code 1:
+
+```json
+{ "success": false, "error": "Error message here" }
+```
+
+Rate-limited responses (429/503) include a `retryAfter` field:
+
+```json
+{ "success": false, "error": "...", "retryAfter": 30 }
+```
+
+Common errors and actions:
+- **Authentication error**: Ask the user to run `figma-reader login`
+- **Node not found**: Verify the node-id in the URL; ensure the correct page/frame is specified
+- **Output too large**: Re-run with a lower `--depth` value
+
+## Choosing an export format
 
 - Icons / logos → SVG
 - Photos / screenshots → PNG (scale 2 for Retina)
 - Print → PDF
 
-### Taking screenshots
+## Example: Get design info and hand off to implementation
 
-When asked to capture or screenshot a Figma design, use the `export` command to download a PNG:
+```bash
+# 1. Check auth
+figma-reader me
+# 2. Get design structure
+figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2"
+# 3. Export reference image
+figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" --format png --scale 2 --download --output /tmp
+```
+
+After retrieving design info, read the JSON output and the exported image. If the user needs implementation, suggest `/feature-dev`.
+
+## Example: Export multiple assets
+
+```bash
+# Export specific nodes as SVG
+figma-reader export "https://www.figma.com/design/XXXXX/Icons?node-id=10:1" --ids "10:2,10:3,10:4" --format svg --download --output ./src/assets/icons
+```
+
+## Example: Screenshot a Figma design
 
 ```bash
 figma-reader export "<figma-url>" --format png --scale 2 --download --output /tmp
@@ -101,8 +169,11 @@ figma-reader export "<figma-url>" --format png --scale 2 --download --output /tm
 
 Read the downloaded image with the Read tool to visually inspect the design.
 
-## Error Handling
+## Local installation
 
-- **Authentication error**: Ask the user to run `figma-reader login`
-- **Node not found**: Verify the node-id in the URL; ensure the correct page/frame is specified
-- **Output too large**: Re-run with a lower `--depth` value
+If the global `figma-reader` command is not found, use `npx`:
+
+```bash
+npx figma-reader inspect "<figma-url>"
+npx figma-reader export "<figma-url>" --format png --download
+```

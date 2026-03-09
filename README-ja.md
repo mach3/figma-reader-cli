@@ -90,6 +90,21 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 | `--output <dir>` | ダウンロード先ディレクトリ | `.` |
 | `--pretty` | 人間向けのテキスト形式で出力 | `false` |
 
+### `install` - AI エージェント用スキルのインストール
+
+AI エージェント（Claude Code など）用のスキルファイルをカレントディレクトリにインストールします。
+
+```bash
+figma-reader install
+figma-reader install --pretty
+```
+
+スキルファイルは `.claude/skills/figma-reader-cli/` にインストールされます。これにより AI エージェントが figma-reader の使い方を理解できるようになります。
+
+| オプション | 説明 | デフォルト |
+|-----------|------|-----------|
+| `--pretty` | 人間向けのテキスト形式で出力 | `false` |
+
 ## AI エージェント連携
 
 このツールは AI エージェントからの利用を前提に設計されています。
@@ -98,6 +113,7 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 - **エラー出力**: エラーは JSON 形式で stderr に出力されます
 - **exit code**: 成功時は `0`、失敗時は `1` を返します
 - **トークン設定**: 環境変数 `FIGMA_TOKEN` での認証が推奨です
+- **スキルインストール**: `figma-reader install` で Claude Code 用のスキルファイルをインストール可能
 
 ## ライセンス
 

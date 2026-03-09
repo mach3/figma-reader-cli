@@ -92,6 +92,21 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 | `--output <dir>` | Download directory | `.` |
 | `--pretty` | Output in human-readable text format | `false` |
 
+### `install` - Install skill files for AI agents
+
+Install skill files (e.g., for Claude Code) to the current directory.
+
+```bash
+figma-reader install
+figma-reader install --pretty
+```
+
+Skill files are installed to `.claude/skills/figma-reader-cli/`. These files help AI agents understand how to use figma-reader commands.
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--pretty` | Output in human-readable text format | `false` |
+
 ## AI Agent Integration
 
 This tool is designed for use by AI agents.
@@ -100,6 +115,7 @@ This tool is designed for use by AI agents.
 - **Error output**: Errors are output in JSON format to stderr
 - **Exit codes**: Returns `0` on success, `1` on failure
 - **Token setup**: Authentication via `FIGMA_TOKEN` environment variable is recommended
+- **Skill install**: Run `figma-reader install` to install skill files for Claude Code
 
 ## License
 

@@ -15,6 +15,7 @@ const main = defineCommand({
     me: () => import("./features/me/index.js").then((m) => m.default),
     inspect: () => import("./features/inspect/index.js").then((m) => m.default),
     export: () => import("./features/export/index.js").then((m) => m.default),
+    install: () => import("./features/install/index.js").then((m) => m.default),
   },
 });
 

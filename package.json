@@ -16,7 +16,8 @@
     "test:watch": "vitest"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "keywords": [
     "figma",

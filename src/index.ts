@@ -1,9 +1,13 @@
+import { createRequire } from "node:module";
 import { defineCommand, runMain } from "citty";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json");
 
 const main = defineCommand({
   meta: {
     name: "figma-reader",
-    version: "0.1.0",
+    version,
     description: "CLI tool for reading Figma design data",
   },
   subCommands: {

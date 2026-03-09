@@ -24,6 +24,10 @@
     "cli",
     "design"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mach3/figma-reader-cli.git"
+  },
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.30.1",

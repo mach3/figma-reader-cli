@@ -8,7 +8,7 @@ import type { AppError } from "../../lib/error.js";
 /** バンドル済みスキルファイルのソースディレクトリを返す */
 export function getSkillSourceDir(): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  return join(__dirname, "..", "skills", "figma-reader");
+  return join(__dirname, "..", "skills", "figma-reader-cli");
 }
 
 /** スキルファイルをインストール先にコピーする */

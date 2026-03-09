@@ -18,7 +18,7 @@ export default defineCommand({
   async run({ args }) {
     const cwd = process.cwd();
     const sourceDir = getSkillSourceDir();
-    const destDir = join(cwd, ".claude", "skills", "figma-reader");
+    const destDir = join(cwd, ".claude", "skills", "figma-reader-cli");
 
     const result = await copySkills(sourceDir, destDir);
 

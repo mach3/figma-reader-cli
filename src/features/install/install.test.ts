@@ -7,14 +7,14 @@ import { copySkills } from "./install.js";
 
 describe("copySkills", () => {
   const testDir = join(tmpdir(), `figma-reader-install-test-${Date.now()}`);
-  const sourceDir = join(import.meta.dirname, "..", "..", "..", "skills", "figma-reader");
+  const sourceDir = join(import.meta.dirname, "..", "..", "..", "skills", "figma-reader-cli");
 
   afterEach(async () => {
     await rm(testDir, { recursive: true, force: true });
   });
 
   it("スキルファイルをコピーできる", async () => {
-    const destDir = join(testDir, ".claude", "skills", "figma-reader");
+    const destDir = join(testDir, ".claude", "skills", "figma-reader-cli");
 
     const result = await copySkills(sourceDir, destDir);
 
@@ -43,7 +43,7 @@ describe("copySkills", () => {
   });
 
   it("SKILL.md の内容がソースと一致する", async () => {
-    const destDir = join(testDir, ".claude", "skills", "figma-reader");
+    const destDir = join(testDir, ".claude", "skills", "figma-reader-cli");
 
     await copySkills(sourceDir, destDir);
 

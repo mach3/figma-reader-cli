@@ -1,5 +1,5 @@
 ---
-name: figma-reader
+name: figma-reader-cli
 description: Retrieve Figma design structure, style information, and export images via CLI. Use when the user shares a Figma URL, mentions "from Figma" or "from the design", or asks about figma-reader setup.
 allowed-tools: Bash(figma-reader:*)
 ---

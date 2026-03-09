@@ -9,42 +9,42 @@ const VALID_FORMATS: readonly ImageFormat[] = ["png", "svg", "pdf"];
 export default defineCommand({
   meta: {
     name: "export",
-    description: "Figma ノードを PNG/SVG/PDF として画像エクスポートする",
+    description: "Export Figma nodes as PNG/SVG/PDF images",
   },
   args: {
     url: {
       type: "positional",
       required: true,
-      description: 'Figma のノード URL（引用符で囲んでください 例: "https://..."）',
+      description: 'Figma node URL (wrap in quotes e.g. "https://...")',
     },
     ids: {
       type: "string",
-      description: "追加ノード ID（カンマ区切り 例: 4:56,7:89）",
+      description: "Additional node IDs (comma-separated e.g. 4:56,7:89)",
     },
     format: {
       type: "string",
       default: "png",
-      description: "出力形式: png, svg, pdf",
+      description: "Output format: png, svg, pdf",
     },
     scale: {
       type: "string",
       default: "1",
-      description: "スケール (0.01〜4, png/pdf のみ)",
+      description: "Scale factor (0.01-4, png/pdf only)",
     },
     download: {
       type: "boolean",
       default: false,
-      description: "画像をファイルにダウンロードする",
+      description: "Download images as files",
     },
     output: {
       type: "string",
       default: ".",
-      description: "ダウンロード先ディレクトリ",
+      description: "Download destination directory",
     },
     pretty: {
       type: "boolean",
       default: false,
-      description: "人間向けのテキスト形式で出力",
+      description: "Output in human-readable text format",
     },
   },
   async run({ args }) {

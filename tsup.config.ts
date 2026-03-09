@@ -5,6 +5,7 @@ export default defineConfig({
   format: ["esm"],
   target: "es2022",
   clean: true,
+  splitting: false,
   banner: {
     js: "#!/usr/bin/env node",
   },

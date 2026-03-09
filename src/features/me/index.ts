@@ -7,13 +7,13 @@ import { getMe } from "./me.js";
 export default defineCommand({
   meta: {
     name: "me",
-    description: "Figma のユーザー情報を取得する",
+    description: "Get authenticated Figma user info",
   },
   args: {
     pretty: {
       type: "boolean",
       default: false,
-      description: "人間向けのテキスト形式で出力",
+      description: "Output in human-readable text format",
     },
   },
   async run({ args }) {

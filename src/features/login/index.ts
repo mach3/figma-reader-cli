@@ -6,13 +6,13 @@ import { outputError } from "../../lib/error.js";
 export default defineCommand({
   meta: {
     name: "login",
-    description: "Figma Personal Access Token を保存する",
+    description: "Save Figma Personal Access Token",
   },
   args: {
     pretty: {
       type: "boolean",
       default: false,
-      description: "人間向けのテキスト形式で出力",
+      description: "Output in human-readable text format",
     },
   },
   async run({ args }) {

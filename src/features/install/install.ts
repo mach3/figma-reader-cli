@@ -22,6 +22,6 @@ export async function copySkills(
     return ok(undefined);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
-    return err({ type: "CUSTOM_ERROR", message: `スキルのインストールに失敗しました: ${detail}` });
+    return err({ type: "CUSTOM_ERROR", message: `Failed to install skills: ${detail}` });
   }
 }

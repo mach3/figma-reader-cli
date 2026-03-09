@@ -6,13 +6,13 @@ import { copySkills, getSkillSourceDir } from "./install.js";
 export default defineCommand({
   meta: {
     name: "install",
-    description: "AI エージェント用のスキルファイルをインストールする",
+    description: "Install skill files for AI agents",
   },
   args: {
     pretty: {
       type: "boolean",
       default: false,
-      description: "人間向けのテキスト形式で出力",
+      description: "Output in human-readable text format",
     },
   },
   async run({ args }) {
@@ -28,7 +28,7 @@ export default defineCommand({
     }
 
     if (args.pretty) {
-      console.log(`スキルをインストールしました: ${relative(cwd, destDir)}`);
+      console.log(`Skills installed to ${relative(cwd, destDir)}`);
     } else {
       console.log(JSON.stringify({ success: true, path: relative(cwd, destDir) }));
     }

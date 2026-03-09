@@ -8,27 +8,27 @@ import { getNodes } from "./inspect.js";
 export default defineCommand({
   meta: {
     name: "inspect",
-    description: "Figma ノード URL からデザインコンテキストを取得する",
+    description: "Get design context from a Figma node URL",
   },
   args: {
     url: {
       type: "positional",
       required: true,
-      description: 'Figma のノード URL（引用符で囲んでください 例: "https://..."）',
+      description: 'Figma node URL (wrap in quotes e.g. "https://...")',
     },
     pretty: {
       type: "boolean",
       default: false,
-      description: "人間向けのテキスト形式で出力",
+      description: "Output in human-readable text format",
     },
     depth: {
       type: "string", // citty に number 型がないため string で受けて parseInt する
-      description: "ノードツリーの深さ制限（正の整数）",
+      description: "Limit node tree depth (positive integer)",
     },
     geometry: {
       type: "boolean",
       default: false,
-      description: "ベクターデータ（パス情報）を含める",
+      description: "Include vector data (path information)",
     },
   },
   async run({ args }) {

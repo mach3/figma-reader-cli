@@ -11,7 +11,9 @@ const main = defineCommand({
     description: "CLI tool for reading Figma design data",
   },
   subCommands: {
-    login: () => import("./features/login/index.js").then((m) => m.default),
+    auth: () => import("./features/auth/index.js").then((m) => m.default),
+    // login は auth login のエイリアス（後方互換のため残す）
+    login: () => import("./features/auth/login.js").then((m) => m.default),
     me: () => import("./features/me/index.js").then((m) => m.default),
     inspect: () => import("./features/inspect/index.js").then((m) => m.default),
     export: () => import("./features/export/index.js").then((m) => m.default),

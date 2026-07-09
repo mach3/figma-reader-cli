@@ -5,6 +5,7 @@ export type AppError =
   | { type: "API_ERROR"; status: number; message: string; retryAfter?: number }
   | { type: "NETWORK_ERROR"; cause: unknown }
   | { type: "UNAUTHENTICATED" }
+  | { type: "TOKEN_NOT_FOUND"; message: string }
   | { type: "INVALID_URL"; message: string }
   | { type: "CUSTOM_ERROR"; message: string };
 
@@ -20,7 +21,9 @@ export function formatError(error: AppError): string {
     case "NETWORK_ERROR":
       return "ネットワークエラーが発生しました";
     case "UNAUTHENTICATED":
-      return "トークンが設定されていません。`figma-reader login` を実行してください";
+      return "トークンが設定されていません。`figma-reader auth login` を実行してください";
+    case "TOKEN_NOT_FOUND":
+      return error.message;
     case "INVALID_URL":
       return `無効な Figma URL です: ${error.message}`;
     case "CUSTOM_ERROR":

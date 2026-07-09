@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { defineCommand } from "citty";
-import { readConfig, writeConfig } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
+import { loginToken } from "./auth.js";
 
 export default defineCommand({
   meta: {
@@ -9,6 +9,11 @@ export default defineCommand({
     description: "Save Figma Personal Access Token",
   },
   args: {
+    name: {
+      type: "string",
+      description:
+        "Profile name to save the token under (default: local part of the account email from the Figma API)",
+    },
     pretty: {
       type: "boolean",
       default: false,
@@ -16,7 +21,8 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    // プロンプトは stderr に出す。stdout はデータ（JSON）専用にしてパイプ実行時の汚染を防ぐ
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
     try {
       const token = await rl.question("Figma Personal Access Token: ");
 
@@ -26,23 +32,17 @@ export default defineCommand({
         return process.exit(1);
       }
 
-      // 既存の config を読み込んでマージ
-      const configResult = await readConfig();
-      if (configResult.isErr()) {
-        outputError(args.pretty, configResult.error);
+      const result = await loginToken(args.name, trimmed);
+      if (result.isErr()) {
+        outputError(args.pretty, result.error);
         return process.exit(1);
       }
 
-      const writeResult = await writeConfig({ ...configResult.value, token: trimmed });
-      if (writeResult.isErr()) {
-        outputError(args.pretty, writeResult.error);
-        return process.exit(1);
-      }
-
+      const name = result.value;
       if (args.pretty) {
-        console.log("トークンを保存しました");
+        console.log(`トークンを保存しました (profile: ${name})`);
       } else {
-        console.log(JSON.stringify({ success: true }));
+        console.log(JSON.stringify({ success: true, name }));
       }
     } finally {
       rl.close();

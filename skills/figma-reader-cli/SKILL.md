@@ -21,14 +21,22 @@ figma-reader export "https://www.figma.com/design/XXXXX/File-Name?node-id=1:2" -
 
 ### Authentication
 
+Multiple tokens can be saved as named profiles and switched at any time.
+
 ```bash
-figma-reader login
+figma-reader auth login                # save a token (profile name derived from account email local part)
+figma-reader auth login --name work    # save under an explicit profile name
+figma-reader auth list                 # list saved profiles (tokens are masked)
+figma-reader auth switch work          # switch the active profile
+figma-reader auth status               # verify the active token via the Figma API
 figma-reader me
 figma-reader me --pretty
 ```
 
-`login` is interactive — do not run it directly. Ask the user to run it.
+`login` (top-level) is an alias of `auth login`.
+`auth login` is interactive — do not run it directly. Ask the user to run it.
 Token is a [Figma Personal Access Token](https://www.figma.com/developers/api#access-tokens) from Figma settings.
+All other commands (`me`, `inspect`, `export`) use the active profile's token. The `FIGMA_TOKEN` environment variable, when set, overrides any saved profile.
 
 ### Inspect
 
@@ -116,6 +124,26 @@ Do not specify `--depth` by default. Only use `--depth 3`–`5` if the output is
 { "id": "12345", "email": "user@example.com", "handle": "username", "img_url": "https://..." }
 ```
 
+### auth list output
+
+```json
+[{ "name": "work", "masked": "figd_abc...", "active": true }]
+```
+
+### auth switch output
+
+```json
+{ "success": true, "active": "work" }
+```
+
+### auth status output
+
+```json
+{ "success": true, "profile": "work", "user": { "id": "12345", "email": "user@example.com", "handle": "username", "img_url": "https://..." } }
+```
+
+`profile` is `"env"` when the token comes from the `FIGMA_TOKEN` environment variable.
+
 ## Error handling
 
 Errors are written to **stderr** as JSON with exit code 1:
@@ -131,7 +159,8 @@ Rate-limited responses (429/503) include a `retryAfter` field:
 ```
 
 Common errors and actions:
-- **Authentication error**: Ask the user to run `figma-reader login`
+- **Authentication error**: Ask the user to run `figma-reader auth login`
+- **Profile not found** (from `auth switch`): The error message lists saved profile names; run `figma-reader auth list` to check
 - **Node not found**: Verify the node-id in the URL; ensure the correct page/frame is specified
 - **Output too large**: Re-run with a lower `--depth` value
 

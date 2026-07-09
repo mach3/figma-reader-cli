@@ -22,18 +22,31 @@ npm install -g figma-reader
 
 A [Personal Access Token](https://www.figma.com/developers/api#access-tokens) is required to use the Figma API.
 
-### Option 1: `login` command (Recommended)
+### Option 1: `auth login` command (Recommended)
 
 Interactively enter your token and save it to a config file (`~/.config/figma-reader/config.json`).
+Multiple tokens can be saved under different profile names and switched at any time.
 
 ```bash
-figma-reader login
-figma-reader login --pretty
+figma-reader auth login                # profile name is derived from your Figma account email (local part)
+figma-reader auth login --name work    # save as profile "work"
+figma-reader login                     # alias of `auth login`
 ```
 
 | Option | Description |
 |--------|-------------|
+| `--name <name>` | Profile name to save the token under. When omitted, the local part of the account email fetched from the Figma API is used (the token is validated as a side effect) |
 | `--pretty` | Output in human-readable text format |
+
+#### Managing multiple tokens
+
+```bash
+figma-reader auth list             # list saved profiles (tokens are masked)
+figma-reader auth switch work      # switch the active profile
+figma-reader auth status           # verify the active token via the Figma API
+```
+
+The first saved token automatically becomes active. All commands (`me`, `inspect`, `export`) use the active token.
 
 ### Option 2: Environment variable
 

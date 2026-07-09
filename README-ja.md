@@ -20,18 +20,31 @@ npm install -g figma-reader
 
 Figma API を利用するには [Personal Access Token](https://www.figma.com/developers/api#access-tokens) が必要です。
 
-### 方法 1: `login` コマンド（推奨）
+### 方法 1: `auth login` コマンド（推奨）
 
 対話的にトークンを入力し、設定ファイル（`~/.config/figma-reader/config.json`）に保存します。
+複数のトークンをプロファイル名付きで保存し、いつでも切り替えられます。
 
 ```bash
-figma-reader login
-figma-reader login --pretty
+figma-reader auth login                # プロファイル名は Figma アカウントの email（ローカル部）から自動決定
+figma-reader auth login --name work    # プロファイル "work" として保存
+figma-reader login                     # `auth login` のエイリアス
 ```
 
 | オプション | 説明 |
 |-----------|------|
+| `--name <name>` | トークンを保存するプロファイル名。省略時は Figma API から取得したアカウント email のローカル部を使う（副作用としてトークンが検証される） |
 | `--pretty` | 人間向けのテキスト形式で出力 |
+
+#### 複数トークンの管理
+
+```bash
+figma-reader auth list             # 保存済みプロファイル一覧（トークンはマスク表示）
+figma-reader auth switch work      # アクティブなプロファイルを切り替え
+figma-reader auth status           # アクティブなトークンを Figma API で検証
+```
+
+最初に保存したトークンが自動的にアクティブになります。すべてのコマンド（`me`, `inspect`, `export`）はアクティブなトークンを使用します。
 
 ### 方法 2: 環境変数
 

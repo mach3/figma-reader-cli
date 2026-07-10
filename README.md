@@ -48,6 +48,8 @@ figma-reader auth status           # verify the active token via the Figma API
 
 The first saved token automatically becomes active. All commands (`me`, `inspect`, `export`) use the active token.
 
+To use a specific profile for a single run without switching, pass `--profile <name>` to `me`, `inspect`, `export`, or `auth status`. Precedence: `--profile` > `FIGMA_TOKEN` > active profile.
+
 ### Option 2: Environment variable
 
 Set the `FIGMA_TOKEN` environment variable. Environment variables take priority over the config file.

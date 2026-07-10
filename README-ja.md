@@ -46,6 +46,8 @@ figma-reader auth status           # アクティブなトークンを Figma API
 
 最初に保存したトークンが自動的にアクティブになります。すべてのコマンド（`me`, `inspect`, `export`）はアクティブなトークンを使用します。
 
+切り替えずに一度だけ別のプロファイルを使う場合は、`me` / `inspect` / `export` / `auth status` に `--profile <name>` を指定します。優先順位: `--profile` > `FIGMA_TOKEN` > アクティブプロファイル。
+
 ### 方法 2: 環境変数
 
 環境変数 `FIGMA_TOKEN` を設定します。環境変数は設定ファイルより優先されます。

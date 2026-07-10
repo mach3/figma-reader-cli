@@ -28,7 +28,7 @@ export default defineCommand({
 
       const trimmed = token.trim();
       if (!trimmed) {
-        outputError(args.pretty, { type: "CUSTOM_ERROR", message: "トークンが空です" });
+        outputError(args.pretty, { type: "CUSTOM_ERROR", message: "Token is empty" });
         return process.exit(1);
       }
 
@@ -40,7 +40,7 @@ export default defineCommand({
 
       const name = result.value;
       if (args.pretty) {
-        console.log(`トークンを保存しました (profile: ${name})`);
+        console.log(`Token saved (profile: ${name})`);
       } else {
         console.log(JSON.stringify({ success: true, name }));
       }

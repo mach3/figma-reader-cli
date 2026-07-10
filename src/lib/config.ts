@@ -46,10 +46,10 @@ export function addToken(config: Config, name: string, token: string): Config {
 
 /** TOKEN_NOT_FOUND エラーを保存済みプロファイル一覧付きで組み立てる */
 function tokenNotFound(tokens: Record<string, string>, name: string): AppError {
-  const available = Object.keys(tokens).join(", ") || "(なし)";
+  const available = Object.keys(tokens).join(", ") || "(none)";
   return {
     type: "TOKEN_NOT_FOUND",
-    message: `プロファイル "${name}" は見つかりません。保存済み: ${available}`,
+    message: `Profile "${name}" not found. Saved profiles: ${available}`,
   };
 }
 

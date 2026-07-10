@@ -13,29 +13,29 @@ export type AppError =
 export function formatError(error: AppError): string {
   switch (error.type) {
     case "CONFIG_READ_ERROR":
-      return "設定ファイルの読み込みに失敗しました";
+      return "Failed to read the config file";
     case "CONFIG_WRITE_ERROR":
-      return "設定ファイルの書き込みに失敗しました";
+      return "Failed to write the config file";
     case "API_ERROR":
       // 403 はトークン起因の可能性が高いため、リトライ手順のヒントを添える
       // （スキル未導入のエージェントが失敗時に確実に見るのはこのメッセージだけ）
       if (error.status === 403) {
-        return `Figma API エラー (403): ${error.message}。\`figma-reader auth list\` で保存済みプロファイルを確認し、\`--profile <name>\` で別のトークンを試してください`;
+        return `Figma API error (403): ${error.message}. Run \`figma-reader auth list\` to see saved profiles and retry with \`--profile <name>\` to use a different token`;
       }
       // Figma API はファイルの存在を秘匿するため、権限不足でも 403 ではなく 404 を返す。
       // node-id の誤りと区別できないので二段構えのヒントにする
       if (error.status === 404) {
-        return `Figma API エラー (404): ${error.message}。URL の node-id を確認してください。正しい場合はアクセス権限がない可能性があります。\`figma-reader auth list\` で保存済みプロファイルを確認し、\`--profile <name>\` で別のトークンを試してください`;
+        return `Figma API error (404): ${error.message}. Verify the node-id in the URL. If it is correct, the token may lack access: run \`figma-reader auth list\` to see saved profiles and retry with \`--profile <name>\` to use a different token`;
       }
-      return `Figma API エラー (${error.status}): ${error.message}`;
+      return `Figma API error (${error.status}): ${error.message}`;
     case "NETWORK_ERROR":
-      return "ネットワークエラーが発生しました";
+      return "A network error occurred";
     case "UNAUTHENTICATED":
-      return "トークンが設定されていません。`figma-reader auth login` を実行してください";
+      return "No token is configured. Run `figma-reader auth login`";
     case "TOKEN_NOT_FOUND":
       return error.message;
     case "INVALID_URL":
-      return `無効な Figma URL です: ${error.message}`;
+      return `Invalid Figma URL: ${error.message}`;
     case "CUSTOM_ERROR":
       return error.message;
   }
@@ -48,7 +48,7 @@ export function outputError(pretty: boolean, error: AppError): void {
   if (pretty) {
     console.error(message);
     if (error.type === "API_ERROR" && error.retryAfter !== undefined) {
-      console.error(`${error.retryAfter} 秒後にリトライしてください`);
+      console.error(`Retry after ${error.retryAfter} seconds`);
     }
   } else {
     const json =

@@ -20,18 +20,18 @@ export function parseFigmaUrl(url: string): Result<FigmaUrlParams, AppError> {
   try {
     parsed = new URL(url);
   } catch {
-    return err({ type: "INVALID_URL", message: "URL の形式が正しくありません" });
+    return err({ type: "INVALID_URL", message: "Malformed URL" });
   }
 
   if (parsed.hostname !== "www.figma.com" && parsed.hostname !== "figma.com") {
-    return err({ type: "INVALID_URL", message: "Figma の URL ではありません" });
+    return err({ type: "INVALID_URL", message: "Not a Figma URL" });
   }
 
   const segments = parsed.pathname.split("/").filter(Boolean);
 
   // /design/:fileKey/... の形式を期待
   if (segments[0] !== "design" || segments.length < 2) {
-    return err({ type: "INVALID_URL", message: "/design/ 形式の URL のみ対応しています" });
+    return err({ type: "INVALID_URL", message: "Only /design/ URLs are supported" });
   }
 
   // branch URL の場合、branchKey を API の fileKey として使う（Figma API の仕様）
@@ -41,7 +41,7 @@ export function parseFigmaUrl(url: string): Result<FigmaUrlParams, AppError> {
 
   const nodeIdParam = parsed.searchParams.get("node-id");
   if (!nodeIdParam) {
-    return err({ type: "INVALID_URL", message: "node-id パラメータがありません" });
+    return err({ type: "INVALID_URL", message: "Missing node-id parameter" });
   }
 
   const nodeId = nodeIdParam.replace(/-/g, ":");

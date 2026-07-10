@@ -69,7 +69,7 @@ export default defineCommand({
     if (!VALID_FORMATS.includes(args.format as ImageFormat)) {
       outputError(args.pretty, {
         type: "CUSTOM_ERROR",
-        message: `--format は ${VALID_FORMATS.join(", ")} のいずれかを指定してください`,
+        message: `--format must be one of: ${VALID_FORMATS.join(", ")}`,
       });
       return process.exit(1);
     }
@@ -80,7 +80,7 @@ export default defineCommand({
     if (Number.isNaN(scale) || scale < 0.01 || scale > 4) {
       outputError(args.pretty, {
         type: "CUSTOM_ERROR",
-        message: "--scale は 0.01〜4 の範囲で指定してください",
+        message: "--scale must be between 0.01 and 4",
       });
       return process.exit(1);
     }
@@ -92,7 +92,7 @@ export default defineCommand({
       nodeIds.push(...args.ids.split(",").map((id) => id.trim()));
     }
     if (nodeIds.length === 0) {
-      outputError(args.pretty, { type: "CUSTOM_ERROR", message: "ノード ID が指定されていません" });
+      outputError(args.pretty, { type: "CUSTOM_ERROR", message: "No node ID specified" });
       return process.exit(1);
     }
 

@@ -32,7 +32,7 @@ export default defineCommand({
 
 function formatProfiles(profiles: TokenProfile[]): void {
   if (profiles.length === 0) {
-    console.log("保存済みトークンはありません");
+    console.log("No saved tokens");
     return;
   }
   for (const profile of profiles) {

@@ -55,7 +55,7 @@ export default defineCommand({
     if (depth !== undefined && (Number.isNaN(depth) || depth < 1)) {
       outputError(args.pretty, {
         type: "CUSTOM_ERROR",
-        message: "--depth は正の整数を指定してください",
+        message: "--depth must be a positive integer",
       });
       return process.exit(1);
     }

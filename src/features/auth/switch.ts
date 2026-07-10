@@ -27,7 +27,7 @@ export default defineCommand({
     }
 
     if (args.pretty) {
-      console.log(`アクティブトークンを "${args.name}" に切り替えました`);
+      console.log(`Switched active token to "${args.name}"`);
     } else {
       console.log(JSON.stringify({ success: true, active: args.name }));
     }

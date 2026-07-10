@@ -194,7 +194,7 @@ describe("downloadImages", () => {
     if (result.isOk()) {
       expect(result.value.successes).toHaveLength(0);
       expect(result.value.failures).toHaveLength(1);
-      expect(result.value.failures[0].reason).toBe("ダウンロード中にエラーが発生しました");
+      expect(result.value.failures[0].reason).toBe("Error occurred during download");
     }
   });
 });

@@ -93,7 +93,7 @@ async function downloadSingleImage(
   { ok: true; value: DownloadResult } | { ok: false; error: { nodeId: string; reason: string } }
 > {
   if (url === null) {
-    return { ok: false, error: { nodeId, reason: "画像 URL が取得できませんでした" } };
+    return { ok: false, error: { nodeId, reason: "Failed to get image URL" } };
   }
 
   try {
@@ -109,6 +109,6 @@ async function downloadSingleImage(
     await fs.writeFile(filePath, buffer);
     return { ok: true, value: { nodeId, filePath } };
   } catch {
-    return { ok: false, error: { nodeId, reason: "ダウンロード中にエラーが発生しました" } };
+    return { ok: false, error: { nodeId, reason: "Error occurred during download" } };
   }
 }

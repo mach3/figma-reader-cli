@@ -30,6 +30,11 @@ export default defineCommand({
       default: false,
       description: "Include vector data (path information)",
     },
+    profile: {
+      type: "string",
+      description:
+        "Profile name to use for this run (overrides FIGMA_TOKEN and the active profile)",
+    },
   },
   async run({ args }) {
     const urlResult = parseFigmaUrl(args.url);
@@ -38,7 +43,7 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const tokenResult = await resolveToken();
+    const tokenResult = await resolveToken(args.profile);
     if (tokenResult.isErr()) {
       outputError(args.pretty, tokenResult.error);
       return process.exit(1);
@@ -50,7 +55,7 @@ export default defineCommand({
     if (depth !== undefined && (Number.isNaN(depth) || depth < 1)) {
       outputError(args.pretty, {
         type: "CUSTOM_ERROR",
-        message: "--depth は正の整数を指定してください",
+        message: "--depth must be a positive integer",
       });
       return process.exit(1);
     }

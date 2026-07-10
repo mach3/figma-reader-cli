@@ -95,13 +95,15 @@ export async function listProfiles(configPath?: string): Promise<Result<TokenPro
 }
 
 /**
- * アクティブトークンの有効性を Figma API `/v1/me` で確認する。
- * profile は環境変数由来なら "env"、それ以外は config の activeToken 名
+ * トークンの有効性を Figma API `/v1/me` で確認する。
+ * 返す profile 名は、--profile 指定時はその名前、環境変数由来なら "env"、
+ * それ以外は config の activeToken 名
  */
 export async function checkStatus(
+  profile?: string,
   configPath?: string,
 ): Promise<Result<{ profile: string; user: FigmaUser }, AppError>> {
-  const tokenResult = await resolveToken(configPath);
+  const tokenResult = await resolveToken(profile, configPath);
   if (tokenResult.isErr()) {
     return err(tokenResult.error);
   }
@@ -111,11 +113,16 @@ export async function checkStatus(
     return err(userResult.error);
   }
 
-  let profile = "env";
-  if (!process.env.FIGMA_TOKEN?.trim()) {
+  // resolveToken の優先順位（--profile > 環境変数 > activeToken）と同じ順で表示名を決める
+  let profileName: string;
+  if (profile) {
+    profileName = profile;
+  } else if (process.env.FIGMA_TOKEN?.trim()) {
+    profileName = "env";
+  } else {
     const configResult = await readConfig(configPath);
-    profile = configResult.isOk() ? (configResult.value.activeToken ?? "") : "";
+    profileName = configResult.isOk() ? (configResult.value.activeToken ?? "") : "";
   }
 
-  return ok({ profile, user: userResult.value });
+  return ok({ profile: profileName, user: userResult.value });
 }

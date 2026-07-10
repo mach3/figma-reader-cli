@@ -10,6 +10,11 @@ export default defineCommand({
     description: "Get authenticated Figma user info",
   },
   args: {
+    profile: {
+      type: "string",
+      description:
+        "Profile name to use for this run (overrides FIGMA_TOKEN and the active profile)",
+    },
     pretty: {
       type: "boolean",
       default: false,
@@ -17,7 +22,7 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const tokenResult = await resolveToken();
+    const tokenResult = await resolveToken(args.profile);
     if (tokenResult.isErr()) {
       outputError(args.pretty, tokenResult.error);
       return process.exit(1);

@@ -17,6 +17,11 @@ export function formatError(error: AppError): string {
     case "CONFIG_WRITE_ERROR":
       return "設定ファイルの書き込みに失敗しました";
     case "API_ERROR":
+      // 403 はトークン起因の可能性が高いため、リトライ手順のヒントを添える
+      // （スキル未導入のエージェントが失敗時に確実に見るのはこのメッセージだけ）
+      if (error.status === 403) {
+        return `Figma API エラー (403): ${error.message}。\`figma-reader auth list\` で保存済みプロファイルを確認し、\`--profile <name>\` で別のトークンを試してください`;
+      }
       return `Figma API エラー (${error.status}): ${error.message}`;
     case "NETWORK_ERROR":
       return "ネットワークエラーが発生しました";

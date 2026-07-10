@@ -44,17 +44,22 @@ export function addToken(config: Config, name: string, token: string): Config {
   };
 }
 
+/** TOKEN_NOT_FOUND エラーを保存済みプロファイル一覧付きで組み立てる */
+function tokenNotFound(tokens: Record<string, string>, name: string): AppError {
+  const available = Object.keys(tokens).join(", ") || "(なし)";
+  return {
+    type: "TOKEN_NOT_FOUND",
+    message: `プロファイル "${name}" は見つかりません。保存済み: ${available}`,
+  };
+}
+
 /** アクティブトークンを切り替える（純粋関数）。指定名が存在しなければ TOKEN_NOT_FOUND */
 export function switchToken(config: Config, name: string): Result<Config, AppError> {
   const tokens = config.tokens ?? {};
   // JSON.parse 由来のオブジェクトは Object.prototype を継承しているため、
   // "toString" 等の継承キーを誤って存在扱いしないよう own-property で判定する
   if (!Object.hasOwn(tokens, name)) {
-    const available = Object.keys(tokens).join(", ") || "(なし)";
-    return err({
-      type: "TOKEN_NOT_FOUND",
-      message: `プロファイル "${name}" は見つかりません。保存済み: ${available}`,
-    });
+    return err(tokenNotFound(tokens, name));
   }
   return ok({ ...config, activeToken: name });
 }
@@ -93,33 +98,36 @@ export async function writeConfig(
 
 /**
  * トークンを解決する。
- * 優先順位: 環境変数 FIGMA_TOKEN → config.json の tokens[activeToken]
+ * 優先順位: profile 引数（--profile 由来）→ 環境変数 FIGMA_TOKEN → config.json の tokens[activeToken]。
+ * 明示的な CLI 引数は暗黙の環境設定より強い、という一般的な CLI 慣習に従う
  */
 export async function resolveToken(
+  profile?: string,
   configPath = getConfigPath(),
 ): Promise<Result<string, AppError>> {
-  const envToken = process.env.FIGMA_TOKEN?.trim();
-  if (envToken) {
-    return ok(envToken);
+  if (!profile) {
+    const envToken = process.env.FIGMA_TOKEN?.trim();
+    if (envToken) {
+      return ok(envToken);
+    }
   }
 
   const configResult = await readConfig(configPath);
   if (configResult.isErr()) {
     return err(configResult.error);
   }
+  const tokens = configResult.value.tokens ?? {};
 
-  // activeToken 未設定、または指す先が存在しない（手編集等）場合も UNAUTHENTICATED。
-  // 継承キー（"toString" 等）を拾わないよう own-property のみ参照する
-  const { tokens, activeToken } = configResult.value;
-  const token =
-    activeToken && tokens && Object.hasOwn(tokens, activeToken)
-      ? tokens[activeToken]?.trim()
-      : undefined;
-  if (token) {
-    return ok(token);
+  // 明示指定されたプロファイルの不在は UNAUTHENTICATED ではなく TOKEN_NOT_FOUND で区別する
+  if (profile && !Object.hasOwn(tokens, profile)) {
+    return err(tokenNotFound(tokens, profile));
   }
 
-  return err({ type: "UNAUTHENTICATED" });
+  // activeToken 未設定、または指す先が存在しない（手編集等）場合は UNAUTHENTICATED。
+  // 継承キー（"toString" 等）を拾わないよう own-property のみ参照する
+  const name = profile ?? configResult.value.activeToken;
+  const token = name && Object.hasOwn(tokens, name) ? tokens[name]?.trim() : undefined;
+  return token ? ok(token) : err({ type: "UNAUTHENTICATED" });
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

@@ -41,6 +41,11 @@ export default defineCommand({
       default: ".",
       description: "Download destination directory",
     },
+    profile: {
+      type: "string",
+      description:
+        "Profile name to use for this run (overrides FIGMA_TOKEN and the active profile)",
+    },
     pretty: {
       type: "boolean",
       default: false,
@@ -54,7 +59,7 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const tokenResult = await resolveToken();
+    const tokenResult = await resolveToken(args.profile);
     if (tokenResult.isErr()) {
       outputError(args.pretty, tokenResult.error);
       return process.exit(1);

@@ -8,6 +8,11 @@ export default defineCommand({
     description: "Check active token validity",
   },
   args: {
+    profile: {
+      type: "string",
+      description:
+        "Profile name to use for this run (overrides FIGMA_TOKEN and the active profile)",
+    },
     pretty: {
       type: "boolean",
       default: false,
@@ -15,7 +20,7 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const result = await checkStatus();
+    const result = await checkStatus(args.profile);
     if (result.isErr()) {
       outputError(args.pretty, result.error);
       return process.exit(1);

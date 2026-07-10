@@ -107,7 +107,7 @@ describe("auth (実ファイル I/O)", () => {
     vi.stubEnv("FIGMA_TOKEN", "");
     await saveToken("work", "figd_work_token", configPath);
 
-    const result = await checkStatus(configPath);
+    const result = await checkStatus(undefined, configPath);
     const status = result._unsafeUnwrap();
     expect(status.profile).toBe("work");
     expect(status.user.handle).toBe("Kurisu Makise");
@@ -116,7 +116,7 @@ describe("auth (実ファイル I/O)", () => {
   it("checkStatus は環境変数由来なら profile: env を返す", async () => {
     vi.stubEnv("FIGMA_TOKEN", "figd_env_token");
 
-    const result = await checkStatus(configPath);
+    const result = await checkStatus(undefined, configPath);
     expect(result._unsafeUnwrap().profile).toBe("env");
   });
 });

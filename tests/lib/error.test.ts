@@ -8,8 +8,21 @@ describe("formatError", () => {
   });
 
   it("API_ERROR に retryAfter がない場合は通常のメッセージ", () => {
-    const error: AppError = { type: "API_ERROR", status: 403, message: "Forbidden" };
-    expect(formatError(error)).toBe("Figma API エラー (403): Forbidden");
+    const error: AppError = { type: "API_ERROR", status: 500, message: "Internal Error" };
+    expect(formatError(error)).toBe("Figma API エラー (500): Internal Error");
+  });
+
+  it("403 の API_ERROR にはリトライ手順のヒントを添える", () => {
+    const error: AppError = { type: "API_ERROR", status: 403, message: "Invalid token" };
+    const message = formatError(error);
+    expect(message).toContain("Figma API エラー (403): Invalid token");
+    expect(message).toContain("auth list");
+    expect(message).toContain("--profile");
+  });
+
+  it("403 以外の API_ERROR にはヒントを含めない", () => {
+    const error: AppError = { type: "API_ERROR", status: 404, message: "Not found" };
+    expect(formatError(error)).toBe("Figma API エラー (404): Not found");
   });
 });
 
@@ -32,12 +45,12 @@ describe("outputError", () => {
 
   it("retryAfter がない API_ERROR では retryAfter フィールドを含めない", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const error: AppError = { type: "API_ERROR", status: 403, message: "Forbidden" };
+    const error: AppError = { type: "API_ERROR", status: 500, message: "Internal Error" };
 
     outputError(false, error);
 
     const output = JSON.parse(spy.mock.calls[0][0] as string);
-    expect(output).toEqual({ success: false, error: "Figma API エラー (403): Forbidden" });
+    expect(output).toEqual({ success: false, error: "Figma API エラー (500): Internal Error" });
     expect(output).not.toHaveProperty("retryAfter");
     spy.mockRestore();
   });

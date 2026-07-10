@@ -138,7 +138,7 @@ describe("readConfig / writeConfig / resolveToken (実ファイル I/O)", () => 
   it("resolveToken は環境変数 FIGMA_TOKEN を最優先する", async () => {
     vi.stubEnv("FIGMA_TOKEN", "figd_env");
     await writeConfig({ tokens: { work: "figd_w" }, activeToken: "work" }, configPath);
-    const result = await resolveToken(configPath);
+    const result = await resolveToken(undefined, configPath);
     expect(result._unsafeUnwrap()).toBe("figd_env");
   });
 
@@ -148,34 +148,60 @@ describe("readConfig / writeConfig / resolveToken (実ファイル I/O)", () => 
       { tokens: { personal: "figd_p", work: "figd_w" }, activeToken: "work" },
       configPath,
     );
-    const result = await resolveToken(configPath);
+    const result = await resolveToken(undefined, configPath);
     expect(result._unsafeUnwrap()).toBe("figd_w");
   });
 
   it("activeToken の指す先が存在しない場合は UNAUTHENTICATED", async () => {
     vi.stubEnv("FIGMA_TOKEN", "");
     await writeConfig({ tokens: { personal: "figd_p" }, activeToken: "deleted" }, configPath);
-    const result = await resolveToken(configPath);
+    const result = await resolveToken(undefined, configPath);
     expect(result._unsafeUnwrapErr().type).toBe("UNAUTHENTICATED");
   });
 
   it("activeToken が継承キー（toString 等）でもクラッシュせず UNAUTHENTICATED", async () => {
     vi.stubEnv("FIGMA_TOKEN", "");
     await writeConfig({ tokens: {}, activeToken: "toString" }, configPath);
-    const result = await resolveToken(configPath);
+    const result = await resolveToken(undefined, configPath);
     expect(result._unsafeUnwrapErr().type).toBe("UNAUTHENTICATED");
   });
 
   it("トークンが何もない場合は UNAUTHENTICATED", async () => {
     vi.stubEnv("FIGMA_TOKEN", "");
-    const result = await resolveToken(configPath);
+    const result = await resolveToken(undefined, configPath);
     expect(result._unsafeUnwrapErr().type).toBe("UNAUTHENTICATED");
+  });
+
+  it("profile 指定時はそのプロファイルのトークンを返す", async () => {
+    await writeConfig(
+      { tokens: { personal: "figd_p", work: "figd_w" }, activeToken: "work" },
+      configPath,
+    );
+    const result = await resolveToken("personal", configPath);
+    expect(result._unsafeUnwrap()).toBe("figd_p");
+  });
+
+  it("profile 指定は環境変数 FIGMA_TOKEN より優先される", async () => {
+    vi.stubEnv("FIGMA_TOKEN", "figd_env");
+    await writeConfig({ tokens: { personal: "figd_p" }, activeToken: "personal" }, configPath);
+    const result = await resolveToken("personal", configPath);
+    expect(result._unsafeUnwrap()).toBe("figd_p");
+  });
+
+  it("存在しない profile 指定は TOKEN_NOT_FOUND を返す", async () => {
+    await writeConfig({ tokens: { personal: "figd_p" }, activeToken: "personal" }, configPath);
+    const result = await resolveToken("nonexistent", configPath);
+    const error = result._unsafeUnwrapErr();
+    expect(error.type).toBe("TOKEN_NOT_FOUND");
+    if (error.type === "TOKEN_NOT_FOUND") {
+      expect(error.message).toContain("personal");
+    }
   });
 
   it("旧形式ファイルからも resolveToken できる", async () => {
     vi.stubEnv("FIGMA_TOKEN", "");
     await writeConfig({ token: "figd_legacy" }, configPath);
-    const result = await resolveToken(configPath);
+    const result = await resolveToken(undefined, configPath);
     expect(result._unsafeUnwrap()).toBe("figd_legacy");
   });
 });

@@ -166,12 +166,15 @@ Rate-limited responses (429/503) include a `retryAfter` field:
 
 Common errors and actions:
 - **Authentication error**: Ask the user to run `figma-reader auth login`
-- **403 (invalid token)**: Another saved profile may work. Fallback procedure:
+- **403 (invalid token)**: The token itself is invalid or expired. Another saved profile may work. Fallback procedure:
   1. `figma-reader auth list` to see saved profiles
   2. Retry the failed command with `--profile <name>` using a different profile
   3. If all profiles fail, ask the user to run `figma-reader auth login`
+- **404 (not found / no access)**: The Figma API returns 404 — not 403 — for files the token has no access to, to avoid leaking their existence. Procedure:
+  1. Verify the node-id in the URL; ensure the correct page/frame is specified
+  2. If the URL is correct, the active profile likely lacks access: run `figma-reader auth list` and retry with `--profile <name>` using a different profile
+  3. If all profiles fail, ask the user to check file permissions or run `figma-reader auth login`
 - **Profile not found** (from `auth switch` or `--profile`): The error message lists saved profile names; run `figma-reader auth list` to check
-- **Node not found**: Verify the node-id in the URL; ensure the correct page/frame is specified
 - **Output too large**: Re-run with a lower `--depth` value
 
 ## Choosing an export format

@@ -20,9 +20,18 @@ describe("formatError", () => {
     expect(message).toContain("--profile");
   });
 
-  it("403 以外の API_ERROR にはヒントを含めない", () => {
+  it("404 の API_ERROR には node-id 確認と別プロファイルのヒントを添える", () => {
     const error: AppError = { type: "API_ERROR", status: 404, message: "Not found" };
-    expect(formatError(error)).toBe("Figma API エラー (404): Not found");
+    const message = formatError(error);
+    expect(message).toContain("Figma API エラー (404): Not found");
+    expect(message).toContain("node-id");
+    expect(message).toContain("auth list");
+    expect(message).toContain("--profile");
+  });
+
+  it("403/404 以外の API_ERROR にはヒントを含めない", () => {
+    const error: AppError = { type: "API_ERROR", status: 400, message: "Bad request" };
+    expect(formatError(error)).toBe("Figma API エラー (400): Bad request");
   });
 });
 

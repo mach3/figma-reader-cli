@@ -22,6 +22,11 @@ export function formatError(error: AppError): string {
       if (error.status === 403) {
         return `Figma API エラー (403): ${error.message}。\`figma-reader auth list\` で保存済みプロファイルを確認し、\`--profile <name>\` で別のトークンを試してください`;
       }
+      // Figma API はファイルの存在を秘匿するため、権限不足でも 403 ではなく 404 を返す。
+      // node-id の誤りと区別できないので二段構えのヒントにする
+      if (error.status === 404) {
+        return `Figma API エラー (404): ${error.message}。URL の node-id を確認してください。正しい場合はアクセス権限がない可能性があります。\`figma-reader auth list\` で保存済みプロファイルを確認し、\`--profile <name>\` で別のトークンを試してください`;
+      }
       return `Figma API エラー (${error.status}): ${error.message}`;
     case "NETWORK_ERROR":
       return "ネットワークエラーが発生しました";

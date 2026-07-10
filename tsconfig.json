@@ -10,7 +10,8 @@
     "rootDir": "src",
     "declaration": true,
     "resolveJsonModule": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "types": ["node"]
   },
   "include": ["src"]
 }

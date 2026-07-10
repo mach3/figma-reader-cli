@@ -38,6 +38,12 @@ figma-reader me --pretty
 Token is a [Figma Personal Access Token](https://www.figma.com/developers/api#access-tokens) from Figma settings.
 All other commands (`me`, `inspect`, `export`) use the active profile's token. The `FIGMA_TOKEN` environment variable, when set, overrides any saved profile.
 
+`me`, `inspect`, `export`, and `auth status` accept `--profile <name>` to use a specific saved profile for that single run without changing the active profile or the config file. Precedence: `--profile` > `FIGMA_TOKEN` > active profile.
+
+```bash
+figma-reader inspect "<figma-url>" --profile personal
+```
+
 ### Inspect
 
 ```bash
@@ -160,7 +166,11 @@ Rate-limited responses (429/503) include a `retryAfter` field:
 
 Common errors and actions:
 - **Authentication error**: Ask the user to run `figma-reader auth login`
-- **Profile not found** (from `auth switch`): The error message lists saved profile names; run `figma-reader auth list` to check
+- **403 (invalid token)**: Another saved profile may work. Fallback procedure:
+  1. `figma-reader auth list` to see saved profiles
+  2. Retry the failed command with `--profile <name>` using a different profile
+  3. If all profiles fail, ask the user to run `figma-reader auth login`
+- **Profile not found** (from `auth switch` or `--profile`): The error message lists saved profile names; run `figma-reader auth list` to check
 - **Node not found**: Verify the node-id in the URL; ensure the correct page/frame is specified
 - **Output too large**: Re-run with a lower `--depth` value
 

@@ -78,6 +78,7 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|
 | `--pretty` | 人間向けのツリー表示で出力 | `false` |
+| `--styles` | スタイル特化の JSON 出力。ノイズフィールドを除去し fills / strokes / effects / レイアウト / テキストスタイルを保持。`--pretty` / `--geometry` とは併用不可 | `false` |
 | `--depth <N>` | ノードツリーの深さを制限（正の整数） | 制限なし |
 | `--geometry` | ベクターデータ（パス情報）を含める | `false` |
 

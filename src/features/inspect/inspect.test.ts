@@ -56,6 +56,23 @@ describe("getNodes", () => {
     expect(calledUrl).toContain("geometry=paths");
   });
 
+  it("200 でも nodes を欠くボディは API_ERROR を返す", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ name: "TestFile" }), { status: 200 }),
+    );
+
+    const result = await getNodes({
+      fileKey: "ABC123",
+      nodeId: "1:23",
+      token: "test-token",
+    });
+
+    expect(result.isErr()).toBe(true);
+    const error = result._unsafeUnwrapErr();
+    expect(error.type).toBe("API_ERROR");
+    expect(error).toMatchObject({ message: expect.stringContaining("nodes") });
+  });
+
   it("API エラー時に err を返す", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("Not Found", { status: 404 }));
 

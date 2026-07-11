@@ -80,6 +80,7 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--pretty` | Output as a human-readable tree view | `false` |
+| `--styles` | Style-focused JSON: removes noise fields, keeps fills / strokes / effects / layout / text styles. Cannot be combined with `--pretty` or `--geometry` | `false` |
 | `--depth <N>` | Limit node tree depth (positive integer) | No limit |
 | `--geometry` | Include vector data (path information) | `false` |
 

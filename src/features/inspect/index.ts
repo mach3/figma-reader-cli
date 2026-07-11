@@ -3,6 +3,7 @@ import { resolveToken } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
 import { parseFigmaUrl } from "../../lib/figma-url.js";
+import { filterStylesResponse } from "./filter-styles.js";
 import { getNodes } from "./inspect.js";
 
 export default defineCommand({
@@ -30,6 +31,12 @@ export default defineCommand({
       default: false,
       description: "Include vector data (path information)",
     },
+    styles: {
+      type: "boolean",
+      default: false,
+      description:
+        "Output style-focused JSON (removes noise fields, keeps fills/strokes/effects etc.)",
+    },
     profile: {
       type: "string",
       description:
@@ -37,6 +44,19 @@ export default defineCommand({
     },
   },
   async run({ args }) {
+    // --styles は機械可読出力専用。--pretty との暗黙の優先順位を作らず明示的にエラーにする。
+    // --geometry はフィルタが fillGeometry/strokeGeometry を除去するため、重い API レスポンスを
+    // 取得した末に黙って捨てることになる。どちらも黙殺せずエラーで返す。
+    // --styles を指定する主体はエージェントなので、このエラーは常に JSON で返す
+    const conflicted = args.pretty ? "--pretty" : args.geometry ? "--geometry" : undefined;
+    if (args.styles && conflicted) {
+      outputError(false, {
+        type: "CUSTOM_ERROR",
+        message: `--styles cannot be combined with ${conflicted}`,
+      });
+      return process.exit(1);
+    }
+
     const urlResult = parseFigmaUrl(args.url);
     if (urlResult.isErr()) {
       outputError(args.pretty, urlResult.error);
@@ -78,7 +98,7 @@ export default defineCommand({
     if (args.pretty) {
       formatNodesResponse(response);
     } else {
-      console.log(JSON.stringify(response));
+      console.log(JSON.stringify(args.styles ? filterStylesResponse(response) : response));
     }
   },
 });

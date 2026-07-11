@@ -38,5 +38,15 @@ export async function getNodes(
     return err({ type: "API_ERROR", status: 200, message: result.value.err });
   }
 
+  // 200 でも nodes を欠く想定外のボディは、下流で TypeError になる前に
+  // 機械可読エラーとして返す（figmaGet はレスポンス形状を検証しないため）
+  if (result.value.nodes === undefined || result.value.nodes === null) {
+    return err({
+      type: "API_ERROR",
+      status: 200,
+      message: "Unexpected response: missing 'nodes' field",
+    });
+  }
+
   return result;
 }

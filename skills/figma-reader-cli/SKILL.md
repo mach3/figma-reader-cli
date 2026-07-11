@@ -47,10 +47,37 @@ figma-reader inspect "<figma-url>" --profile personal
 ### Inspect
 
 ```bash
-figma-reader inspect "<figma-url>"
-figma-reader inspect "<figma-url>" --depth 3
-figma-reader inspect "<figma-url>" --geometry
-figma-reader inspect "<figma-url>" --pretty
+figma-reader inspect "<figma-url>" --styles   # style-focused output (recommended for implementation)
+figma-reader inspect "<figma-url>"            # raw Figma API response
+figma-reader inspect "<figma-url>" --depth 3  # limit tree depth (structure overview only — see caveat below)
+figma-reader inspect "<figma-url>" --geometry # raw vector path data (cannot be combined with --styles)
+figma-reader inspect "<figma-url>" --pretty   # human-readable (cannot be combined with --styles)
+```
+
+**When you need vector shapes, `export --format svg` is almost always the right tool, not `--geometry`.** Export returns a finished SVG (boolean operations resolved, transforms applied, usable as a file). `--geometry` returns raw path coordinates (`fillGeometry` / `strokeGeometry`) that you must interpret yourself — use it only when you need path data as code, e.g. generating `clip-path: polygon(...)` values or Canvas drawing commands.
+
+When you do use `--geometry`, scope it down in two steps: first run `--styles` on the parent to find the target vector node's id, then run `--geometry` against that node's own URL (`?node-id=<id>`). Never fetch a whole frame with `--geometry`. Redirect to a file and extract with `jq` as usual — e.g. `jq '.. | objects | select(.name? == "Logo") | .fillGeometry'`.
+
+**When implementing UI from a design, always use `--styles`.** It removes noise fields (`blendMode`, `constraints`, `scrollBehavior`, `absoluteRenderBounds`, etc.) and keeps everything needed to reproduce styles: `fills`, `strokes`, `strokeWeight`, `cornerRadius`, `effects`, `opacity`, Auto Layout properties, text styles, and `boundVariables`.
+
+**Save the output to a file, then read it selectively with `jq`.** Piping large JSON directly into your context risks silent truncation (tool output limits) — styles of later/deeper nodes get cut off without warning. Save to your session's temporary working directory (scratchpad; use `mktemp -d` if none). Do not use a fixed path like `/tmp/design.json` — fixed names get silently overwritten across sessions and you may read stale data. Include the node id in the filename.
+
+```bash
+# 0. Working directory: prefer your session's scratchpad; fall back to mktemp
+WORKDIR=$(mktemp -d)
+
+# 1. Save (filename includes the node id)
+figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2" --styles > "$WORKDIR/design-1-2.json"
+
+# 2. Structure overview (name/type tree) — select on id+name+type so paint/effect
+#    objects (which also have a "type" key but no id/name) don't pollute the list
+jq '[.. | objects | select(.id? and .name? and .type?) | {id, name, type}]' "$WORKDIR/design-1-2.json"
+
+# 3. Style values for every node — check these against your implementation
+jq '[.. | objects | select(.id? and .name? and .type?) | {name, type, fills, strokes, strokeWeight, cornerRadius, effects, opacity} | with_entries(select(.value != null))]' "$WORKDIR/design-1-2.json"
+
+# 4. Single node by name
+jq '.. | objects | select(.name? == "CardHeader")' "$WORKDIR/design-1-2.json"
 ```
 
 ### Export
@@ -105,9 +132,11 @@ All commands output JSON by default (machine-readable). Use `--pretty` only when
 }
 ```
 
-See [references/inspect-output.md](references/inspect-output.md) for detailed field descriptions.
+See [references/inspect-output.md](references/inspect-output.md) for detailed field descriptions and the style checklist.
 
-Do not specify `--depth` by default. Only use `--depth 3`–`5` if the output is too large.
+With `--styles`, the response has the same top-level shape but each node keeps only identity, layout, and style fields. Empty arrays and `undefined` are omitted; `visible` appears only when `false` (a hidden fill/stroke layer — do not implement it).
+
+Do not use `--depth` to shrink output for implementation work: it drops child nodes entirely, and colors/borders live on leaf nodes. Use `--styles` + file redirect + `jq` instead. `--depth` is only for a quick structure overview.
 
 ### export output (URL mode)
 
@@ -175,7 +204,7 @@ Common errors and actions:
   2. If the URL is correct, the active profile likely lacks access: run `figma-reader auth list` and retry with `--profile <name>` using a different profile
   3. If all profiles fail, ask the user to check file permissions or run `figma-reader auth login`
 - **Profile not found** (from `auth switch` or `--profile`): The error message lists saved profile names; run `figma-reader auth list` to check
-- **Output too large**: Re-run with a lower `--depth` value
+- **Output too large**: Use `--styles` and redirect to a file, then extract with `jq` (see Inspect section). Do NOT lower `--depth` — it silently discards leaf-node styles
 
 ## Choosing an export format
 
@@ -186,15 +215,24 @@ Common errors and actions:
 ## Example: Get design info and hand off to implementation
 
 ```bash
+# 0. Prepare a working directory (use your scratchpad if available)
+WORKDIR=$(mktemp -d)
 # 1. Check auth
 figma-reader me
-# 2. Get design structure
-figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2"
+# 2. Get style-focused design data, saved to a file
+figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2" --styles > "$WORKDIR/design-1-2.json"
 # 3. Export reference image
-figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" --format png --scale 2 --download --output /tmp
+figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" --format png --scale 2 --download --output "$WORKDIR"
 ```
 
-After retrieving design info, read the JSON output and the exported image. If the user needs implementation, suggest `/feature-dev`.
+Then read the exported image and extract style values per node with `jq`. If the user needs implementation, suggest `/feature-dev`.
+
+### Verify after implementing
+
+Subtle styles (1px borders, slight color differences) are easy to miss in a screenshot alone. Always do both checks:
+
+1. **JSON cross-check**: for each node, compare your implementation against the style checklist in [references/inspect-output.md](references/inspect-output.md) — `fills`, `strokes`, `strokeWeight`, `cornerRadius`, `effects`, `opacity`. Values live in the saved JSON, not your memory of it.
+2. **Visual diff**: screenshot your implementation and compare it side by side with the exported Figma PNG.
 
 ## Example: Export multiple assets
 
@@ -206,8 +244,10 @@ figma-reader export "https://www.figma.com/design/XXXXX/Icons?node-id=10:1" --id
 ## Example: Screenshot a Figma design
 
 ```bash
-figma-reader export "<figma-url>" --format png --scale 2 --download --output /tmp
+figma-reader export "<figma-url>" --format png --scale 2 --download --output "$(mktemp -d)"
 ```
+
+Prefer your session's scratchpad directory over `mktemp -d` when one is available.
 
 Read the downloaded image with the Read tool to visually inspect the design.
 

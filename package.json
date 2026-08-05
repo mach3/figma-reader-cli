@@ -1,6 +1,6 @@
 {
   "name": "figma-reader",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI tool for reading Figma design data",
   "type": "module",
   "bin": {

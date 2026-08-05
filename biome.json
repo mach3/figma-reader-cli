@@ -10,6 +10,6 @@
     }
   },
   "files": {
-    "includes": ["src/**", "*.config.ts", "!!**/dist", "!!**/node_modules"]
+    "includes": ["src/**", "scripts/**", "*.config.ts", "!!**/dist", "!!**/node_modules"]
   }
 }

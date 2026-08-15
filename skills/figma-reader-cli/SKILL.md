@@ -146,6 +146,8 @@ The URL's own `node-id` is exported too, so `--ids` only needs the *additional* 
 
 ```bash
 figma-reader install
+figma-reader install --agent codex        # claude (default) | codex | antigravity
+figma-reader install --dest <path>        # arbitrary path; not combinable with --agent
 figma-reader install --pretty
 ```
 

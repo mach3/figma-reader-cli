@@ -110,17 +110,34 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 
 ### `install` - AI エージェント用スキルのインストール
 
-AI エージェント（Claude Code など）用のスキルファイルをカレントディレクトリにインストールします。
+AI エージェント用のスキルファイルをカレントディレクトリにインストールします。これにより AI エージェントが figma-reader の使い方を理解できるようになります。
 
 ```bash
+# Claude Code（デフォルト）
 figma-reader install
-figma-reader install --pretty
+
+# その他のエージェント
+figma-reader install --agent codex
+figma-reader install --agent antigravity
+
+# 任意のパス（未対応エージェント向け）
+figma-reader install --dest .windsurf/skills/figma-reader-cli
 ```
 
-スキルファイルは `.claude/skills/figma-reader-cli/` にインストールされます。これにより AI エージェントが figma-reader の使い方を理解できるようになります。
+同梱スキルは SKILL.md 形式（Agent Skills）なので、変換なしでそのままコピーされます。
+
+| `--agent` | インストール先 |
+|-----------|---------------|
+| `claude`（デフォルト） | `.claude/skills/figma-reader-cli/` |
+| `codex` | `.agents/skills/figma-reader-cli/` |
+| `antigravity` | `.agents/skills/figma-reader-cli/` |
+
+`codex` と `antigravity` は同じディレクトリに解決されます。どちらもリポジトリスコープのスキルを `.agents/` 配下から探すためです。Codex CLI のユーザースコープに入れたい場合は `--dest ~/.codex/skills/figma-reader-cli` を使ってください。
 
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|
+| `--agent <name>` | インストール対象のエージェント（`claude`, `codex`, `antigravity`） | `claude` |
+| `--dest <path>` | 任意のパスにインストール（`--agent` とは併用不可） | - |
 | `--pretty` | 人間向けのテキスト形式で出力 | `false` |
 
 ## AI エージェント連携
@@ -131,7 +148,7 @@ figma-reader install --pretty
 - **エラー出力**: エラーは JSON 形式で stderr に出力されます
 - **exit code**: 成功時は `0`、失敗時は `1` を返します
 - **トークン設定**: 環境変数 `FIGMA_TOKEN` での認証が推奨です
-- **スキルインストール**: `figma-reader install` で Claude Code 用のスキルファイルをインストール可能
+- **スキルインストール**: `figma-reader install` でスキルファイルをインストール可能（`--agent` で Codex CLI・Antigravity も指定可）
 
 ## ライセンス
 

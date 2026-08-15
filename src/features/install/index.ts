@@ -1,7 +1,12 @@
-import { join, relative } from "node:path";
 import { defineCommand } from "citty";
 import { outputError } from "../../lib/error.js";
-import { copySkills, getSkillSourceDir } from "./install.js";
+import {
+  AGENT_NAMES,
+  copySkills,
+  formatInstalledPath,
+  getSkillSourceDir,
+  resolveInstallDir,
+} from "./install.js";
 
 export default defineCommand({
   meta: {
@@ -9,6 +14,14 @@ export default defineCommand({
     description: "Install skill files for AI agents",
   },
   args: {
+    agent: {
+      type: "string",
+      description: `Target agent: ${AGENT_NAMES.join(", ")} (default: claude)`,
+    },
+    dest: {
+      type: "string",
+      description: "Install to an arbitrary path (cannot be used with --agent)",
+    },
     pretty: {
       type: "boolean",
       default: false,
@@ -17,20 +30,26 @@ export default defineCommand({
   },
   async run({ args }) {
     const cwd = process.cwd();
-    const sourceDir = getSkillSourceDir();
-    const destDir = join(cwd, ".claude", "skills", "figma-reader-cli");
 
-    const result = await copySkills(sourceDir, destDir);
+    const destResult = resolveInstallDir({ cwd, agent: args.agent, dest: args.dest });
+    if (destResult.isErr()) {
+      outputError(args.pretty, destResult.error);
+      return process.exit(1);
+    }
+    const destDir = destResult.value;
+
+    const result = await copySkills(getSkillSourceDir(), destDir);
 
     if (result.isErr()) {
       outputError(args.pretty, result.error);
       return process.exit(1);
     }
 
+    const path = formatInstalledPath(cwd, destDir);
     if (args.pretty) {
-      console.log(`Skills installed to ${relative(cwd, destDir)}`);
+      console.log(`Skills installed to ${path}`);
     } else {
-      console.log(JSON.stringify({ success: true, path: relative(cwd, destDir) }));
+      console.log(JSON.stringify({ success: true, path }));
     }
   },
 });

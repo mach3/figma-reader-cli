@@ -4,7 +4,7 @@ import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
 import { parseFigmaUrl } from "../../lib/figma-url.js";
 import { filterStylesResponse } from "./filter-styles.js";
-import { getNodes } from "./inspect.js";
+import { checkStylesConflict, getNodes, parseDepth } from "./inspect.js";
 
 export default defineCommand({
   meta: {
@@ -44,16 +44,14 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    // --styles は機械可読出力専用。--pretty との暗黙の優先順位を作らず明示的にエラーにする。
-    // --geometry はフィルタが fillGeometry/strokeGeometry を除去するため、重い API レスポンスを
-    // 取得した末に黙って捨てることになる。どちらも黙殺せずエラーで返す。
     // --styles を指定する主体はエージェントなので、このエラーは常に JSON で返す
-    const conflicted = args.pretty ? "--pretty" : args.geometry ? "--geometry" : undefined;
-    if (args.styles && conflicted) {
-      outputError(false, {
-        type: "CUSTOM_ERROR",
-        message: `--styles cannot be combined with ${conflicted}`,
-      });
+    const conflictResult = checkStylesConflict({
+      styles: args.styles,
+      pretty: args.pretty,
+      geometry: args.geometry,
+    });
+    if (conflictResult.isErr()) {
+      outputError(false, conflictResult.error);
       return process.exit(1);
     }
 
@@ -70,13 +68,10 @@ export default defineCommand({
     }
 
     const { fileKey, nodeId } = urlResult.value;
-    const depth = args.depth !== undefined ? Number.parseInt(args.depth, 10) : undefined;
 
-    if (depth !== undefined && (Number.isNaN(depth) || depth < 1)) {
-      outputError(args.pretty, {
-        type: "CUSTOM_ERROR",
-        message: "--depth must be a positive integer",
-      });
+    const depthResult = parseDepth(args.depth);
+    if (depthResult.isErr()) {
+      outputError(args.pretty, depthResult.error);
       return process.exit(1);
     }
 
@@ -84,7 +79,7 @@ export default defineCommand({
       fileKey,
       nodeId,
       token: tokenResult.value,
-      depth,
+      depth: depthResult.value,
       geometry: args.geometry,
     });
 

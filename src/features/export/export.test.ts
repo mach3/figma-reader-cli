@@ -57,6 +57,17 @@ describe("collectNodeIds", () => {
   it("--ids の各要素をトリムする", () => {
     expect(collectNodeIds("1:2", " 4:56 , 7:89 ")._unsafeUnwrap()).toEqual(["1:2", "4:56", "7:89"]);
   });
+
+  // 空要素は「取得できなかった値が join された」可能性があるため、黙って捨てずにエラーにする
+  it.each(["4:56,", ",4:56", "4:56,,7:89", ",,", " "])(
+    "--ids が %o なら空要素としてエラーを返す",
+    (ids) => {
+      expect(collectNodeIds("1:2", ids)._unsafeUnwrapErr()).toEqual({
+        type: "CUSTOM_ERROR",
+        message: "--ids contains an empty node ID",
+      });
+    },
+  );
 });
 
 describe("getImages", () => {

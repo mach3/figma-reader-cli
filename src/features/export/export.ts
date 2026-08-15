@@ -32,14 +32,23 @@ export function parseScale(scale: string): Result<number, AppError> {
 
 /**
  * URL の node-id と --ids からエクスポート対象のノード ID を集める。
- * nodeId は parseFigmaUrl が必ず返すため、収集結果が空になることはない。
- * 他の引数バリデーションと形を揃えるため Result で返す
+ *
+ * --ids の空要素は黙って捨てずにエラーにする。主な呼び出し元は AI エージェントであり、
+ * 空要素は末尾カンマより「配列の要素が undefined のまま join された」＝取得したかった
+ * ノードが欠けているシグナルである可能性が高い。捨てると要求より少ないノードを
+ * エクスポートしたうえで success を返すことになり、呼び出し元が欠落に気づけない。
+ * 空要素のまま API に送ると 1 回分のレートリミットを無駄にするため、送る前に落とす
  */
 export function collectNodeIds(
   nodeId: string,
   ids: string | undefined,
 ): Result<string[], AppError> {
-  return ok(ids ? [nodeId, ...ids.split(",").map((id) => id.trim())] : [nodeId]);
+  const extra = ids ? ids.split(",").map((id) => id.trim()) : [];
+
+  if (extra.some((id) => id === "")) {
+    return err({ type: "CUSTOM_ERROR", message: "--ids contains an empty node ID" });
+  }
+  return ok([nodeId, ...extra]);
 }
 
 export type ExportImagesOptions = {

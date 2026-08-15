@@ -1,10 +1,63 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { downloadImages, getImages } from "./export.js";
+import {
+  collectNodeIds,
+  downloadImages,
+  getImages,
+  parseImageFormat,
+  parseScale,
+} from "./export.js";
 
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
   writeFile: vi.fn(),
 }));
+
+describe("parseImageFormat", () => {
+  it.each(["png", "svg", "pdf"])("%o をそのまま返す", (format) => {
+    expect(parseImageFormat(format)._unsafeUnwrap()).toBe(format);
+  });
+
+  it.each(["gif", "PNG", ""])("%o はエラーを返す", (format) => {
+    expect(parseImageFormat(format)._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: "--format must be one of: png, svg, pdf",
+    });
+  });
+});
+
+describe("parseScale", () => {
+  it.each([
+    ["1", 1],
+    ["0.01", 0.01],
+    ["4", 4],
+    ["2.5", 2.5],
+    // parseFloat の既存挙動をそのまま維持する
+    ["2abc", 2],
+  ])("%o は %o にパースする", (input, expected) => {
+    expect(parseScale(input)._unsafeUnwrap()).toBe(expected);
+  });
+
+  it.each(["0", "0.001", "4.1", "5", "abc", ""])("%o はエラーを返す", (input) => {
+    expect(parseScale(input)._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: "--scale must be between 0.01 and 4",
+    });
+  });
+});
+
+describe("collectNodeIds", () => {
+  it("URL の nodeId だけを返す", () => {
+    expect(collectNodeIds("1:2", undefined)._unsafeUnwrap()).toEqual(["1:2"]);
+  });
+
+  it("--ids を URL の nodeId の後ろに連結する", () => {
+    expect(collectNodeIds("1:2", "4:56,7:89")._unsafeUnwrap()).toEqual(["1:2", "4:56", "7:89"]);
+  });
+
+  it("--ids の各要素をトリムする", () => {
+    expect(collectNodeIds("1:2", " 4:56 , 7:89 ")._unsafeUnwrap()).toEqual(["1:2", "4:56", "7:89"]);
+  });
+});
 
 describe("getImages", () => {
   afterEach(() => {

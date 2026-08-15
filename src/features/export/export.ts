@@ -5,7 +5,42 @@ import { err, ok } from "neverthrow";
 import type { AppError } from "../../lib/error.js";
 import { type FigmaImagesResponse, figmaGet } from "../../lib/figma-client.js";
 
-export type ImageFormat = "png" | "svg" | "pdf";
+const VALID_FORMATS = ["png", "svg", "pdf"] as const;
+
+export type ImageFormat = (typeof VALID_FORMATS)[number];
+
+/** --format を検証して ImageFormat に絞り込む */
+export function parseImageFormat(format: string): Result<ImageFormat, AppError> {
+  const found = VALID_FORMATS.find((valid) => valid === format);
+  if (found === undefined) {
+    return err({
+      type: "CUSTOM_ERROR",
+      message: `--format must be one of: ${VALID_FORMATS.join(", ")}`,
+    });
+  }
+  return ok(found);
+}
+
+/** --scale をパースする。Figma API が受け付ける 0.01〜4 の範囲に限る */
+export function parseScale(scale: string): Result<number, AppError> {
+  const parsed = Number.parseFloat(scale);
+  if (Number.isNaN(parsed) || parsed < 0.01 || parsed > 4) {
+    return err({ type: "CUSTOM_ERROR", message: "--scale must be between 0.01 and 4" });
+  }
+  return ok(parsed);
+}
+
+/**
+ * URL の node-id と --ids からエクスポート対象のノード ID を集める。
+ * nodeId は parseFigmaUrl が必ず返すため、収集結果が空になることはない。
+ * 他の引数バリデーションと形を揃えるため Result で返す
+ */
+export function collectNodeIds(
+  nodeId: string,
+  ids: string | undefined,
+): Result<string[], AppError> {
+  return ok(ids ? [nodeId, ...ids.split(",").map((id) => id.trim())] : [nodeId]);
+}
 
 export type ExportImagesOptions = {
   fileKey: string;

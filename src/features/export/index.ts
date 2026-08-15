@@ -2,9 +2,14 @@ import { defineCommand } from "citty";
 import { resolveToken } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
 import { parseFigmaUrl } from "../../lib/figma-url.js";
-import { type DownloadSummary, downloadImages, getImages, type ImageFormat } from "./export.js";
-
-const VALID_FORMATS: readonly ImageFormat[] = ["png", "svg", "pdf"];
+import {
+  collectNodeIds,
+  type DownloadSummary,
+  downloadImages,
+  getImages,
+  parseImageFormat,
+  parseScale,
+} from "./export.js";
 
 export default defineCommand({
   meta: {
@@ -65,43 +70,33 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    // format バリデーション
-    if (!VALID_FORMATS.includes(args.format as ImageFormat)) {
-      outputError(args.pretty, {
-        type: "CUSTOM_ERROR",
-        message: `--format must be one of: ${VALID_FORMATS.join(", ")}`,
-      });
+    const formatResult = parseImageFormat(args.format);
+    if (formatResult.isErr()) {
+      outputError(args.pretty, formatResult.error);
       return process.exit(1);
     }
-    const format = args.format as ImageFormat;
+    const format = formatResult.value;
 
-    // scale バリデーション
-    const scale = Number.parseFloat(args.scale);
-    if (Number.isNaN(scale) || scale < 0.01 || scale > 4) {
-      outputError(args.pretty, {
-        type: "CUSTOM_ERROR",
-        message: "--scale must be between 0.01 and 4",
-      });
+    const scaleResult = parseScale(args.scale);
+    if (scaleResult.isErr()) {
+      outputError(args.pretty, scaleResult.error);
       return process.exit(1);
     }
 
-    // ノード ID の収集（URL の nodeId + --ids）
     const { fileKey, nodeId } = urlResult.value;
-    const nodeIds: string[] = nodeId ? [nodeId] : [];
-    if (args.ids) {
-      nodeIds.push(...args.ids.split(",").map((id) => id.trim()));
-    }
-    if (nodeIds.length === 0) {
-      outputError(args.pretty, { type: "CUSTOM_ERROR", message: "No node ID specified" });
+
+    const nodeIdsResult = collectNodeIds(nodeId, args.ids);
+    if (nodeIdsResult.isErr()) {
+      outputError(args.pretty, nodeIdsResult.error);
       return process.exit(1);
     }
 
     const imagesResult = await getImages({
       fileKey,
-      nodeIds,
+      nodeIds: nodeIdsResult.value,
       token: tokenResult.value,
       format,
-      scale,
+      scale: scaleResult.value,
     });
 
     if (imagesResult.isErr()) {

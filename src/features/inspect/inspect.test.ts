@@ -1,5 +1,61 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getNodes } from "./inspect.js";
+import { checkStylesConflict, getNodes, parseDepth } from "./inspect.js";
+
+describe("checkStylesConflict", () => {
+  it("--styles 単体は通す", () => {
+    const result = checkStylesConflict({ styles: true, pretty: false, geometry: false });
+
+    expect(result.isOk()).toBe(true);
+  });
+
+  it.each([
+    { pretty: true, geometry: false },
+    { pretty: false, geometry: true },
+    { pretty: true, geometry: true },
+  ])("--styles なしなら %o でも通す", (flags) => {
+    const result = checkStylesConflict({ styles: false, ...flags });
+
+    expect(result.isOk()).toBe(true);
+  });
+
+  it.each([
+    [{ styles: true, pretty: true, geometry: false }, "--styles cannot be combined with --pretty"],
+    [
+      { styles: true, pretty: false, geometry: true },
+      "--styles cannot be combined with --geometry",
+    ],
+    // 両方競合する場合にどちらの名前を出すかは既存の優先順位（--pretty 優先）に従う
+    [{ styles: true, pretty: true, geometry: true }, "--styles cannot be combined with --pretty"],
+  ])("%o はエラーを返す", (options, message) => {
+    expect(checkStylesConflict(options)._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message,
+    });
+  });
+});
+
+describe("parseDepth", () => {
+  it("未指定なら undefined を返す", () => {
+    expect(parseDepth(undefined)._unsafeUnwrap()).toBeUndefined();
+  });
+
+  it.each([
+    ["1", 1],
+    ["3", 3],
+    ["10", 10],
+    // parseInt の既存挙動をそのまま維持する（厳密な数値判定には締め直さない）
+    ["3abc", 3],
+  ])("%o は %o にパースする", (input, expected) => {
+    expect(parseDepth(input)._unsafeUnwrap()).toBe(expected);
+  });
+
+  it.each(["0", "-1", "abc", ""])("%o はエラーを返す", (input) => {
+    expect(parseDepth(input)._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: "--depth must be a positive integer",
+    });
+  });
+});
 
 describe("getNodes", () => {
   afterEach(() => {

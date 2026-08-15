@@ -5,7 +5,51 @@ import { err, ok } from "neverthrow";
 import type { AppError } from "../../lib/error.js";
 import { type FigmaImagesResponse, figmaGet } from "../../lib/figma-client.js";
 
-export type ImageFormat = "png" | "svg" | "pdf";
+const VALID_FORMATS = ["png", "svg", "pdf"] as const;
+
+export type ImageFormat = (typeof VALID_FORMATS)[number];
+
+/** --format を検証して ImageFormat に絞り込む */
+export function parseImageFormat(format: string): Result<ImageFormat, AppError> {
+  const found = VALID_FORMATS.find((valid) => valid === format);
+  if (found === undefined) {
+    return err({
+      type: "CUSTOM_ERROR",
+      message: `--format must be one of: ${VALID_FORMATS.join(", ")}`,
+    });
+  }
+  return ok(found);
+}
+
+/** --scale をパースする。Figma API が受け付ける 0.01〜4 の範囲に限る */
+export function parseScale(scale: string): Result<number, AppError> {
+  const parsed = Number.parseFloat(scale);
+  if (Number.isNaN(parsed) || parsed < 0.01 || parsed > 4) {
+    return err({ type: "CUSTOM_ERROR", message: "--scale must be between 0.01 and 4" });
+  }
+  return ok(parsed);
+}
+
+/**
+ * URL の node-id と --ids からエクスポート対象のノード ID を集める。
+ *
+ * --ids の空要素は黙って捨てずにエラーにする。主な呼び出し元は AI エージェントであり、
+ * 空要素は末尾カンマより「配列の要素が undefined のまま join された」＝取得したかった
+ * ノードが欠けているシグナルである可能性が高い。捨てると要求より少ないノードを
+ * エクスポートしたうえで success を返すことになり、呼び出し元が欠落に気づけない。
+ * 空要素のまま API に送ると 1 回分のレートリミットを無駄にするため、送る前に落とす
+ */
+export function collectNodeIds(
+  nodeId: string,
+  ids: string | undefined,
+): Result<string[], AppError> {
+  const extra = ids ? ids.split(",").map((id) => id.trim()) : [];
+
+  if (extra.some((id) => id === "")) {
+    return err({ type: "CUSTOM_ERROR", message: "--ids contains an empty node ID" });
+  }
+  return ok([nodeId, ...extra]);
+}
 
 export type ExportImagesOptions = {
   fileKey: string;

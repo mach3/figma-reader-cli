@@ -112,17 +112,34 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 
 ### `install` - Install skill files for AI agents
 
-Install skill files (e.g., for Claude Code) to the current directory.
+Install skill files to the current directory. These files help AI agents understand how to use figma-reader commands.
 
 ```bash
+# Claude Code (default)
 figma-reader install
-figma-reader install --pretty
+
+# Other agents
+figma-reader install --agent codex
+figma-reader install --agent antigravity
+
+# Arbitrary path (for unsupported agents)
+figma-reader install --dest .windsurf/skills/figma-reader-cli
 ```
 
-Skill files are installed to `.claude/skills/figma-reader-cli/`. These files help AI agents understand how to use figma-reader commands.
+The bundled skill is in the SKILL.md-based Agent Skills format and is copied as-is, without any conversion.
+
+| `--agent` | Install destination |
+|-----------|---------------------|
+| `claude` (default) | `.claude/skills/figma-reader-cli/` |
+| `codex` | `.agents/skills/figma-reader-cli/` |
+| `antigravity` | `.agents/skills/figma-reader-cli/` |
+
+`codex` and `antigravity` resolve to the same directory: both look up repository-scoped skills under `.agents/`. To install for Codex CLI at the user scope instead, use `--dest ~/.codex/skills/figma-reader-cli`.
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `--agent <name>` | Target agent (`claude`, `codex`, `antigravity`) | `claude` |
+| `--dest <path>` | Install to an arbitrary path (cannot be used with `--agent`) | - |
 | `--pretty` | Output in human-readable text format | `false` |
 
 ## AI Agent Integration
@@ -133,7 +150,7 @@ This tool is designed for use by AI agents.
 - **Error output**: Errors are output in JSON format to stderr
 - **Exit codes**: Returns `0` on success, `1` on failure
 - **Token setup**: Authentication via `FIGMA_TOKEN` environment variable is recommended
-- **Skill install**: Run `figma-reader install` to install skill files for Claude Code
+- **Skill install**: Run `figma-reader install` to install skill files (use `--agent` to target Codex CLI or Antigravity)
 
 ## License
 

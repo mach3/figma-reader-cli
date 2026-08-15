@@ -12,7 +12,9 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [22, 24, 26]
+        # サポート下限 (engines と一致) と最新の両端のみを検証する。
+        # 中間の 24 は両端が通れば壊れる余地がほぼないため省いている。
+        node-version: [22, 26]
 
     steps:
       - uses: actions/checkout@v4

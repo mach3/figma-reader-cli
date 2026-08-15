@@ -14,6 +14,8 @@ Primarily designed for AI agents to execute as a subprocess and obtain accurate,
 
 ## Installation
 
+Requires **Node.js 22.12 or later**. Node 18 and 20 have reached end-of-life and are no longer supported.
+
 ```bash
 npm install -g figma-reader
 ```

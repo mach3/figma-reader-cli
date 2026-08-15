@@ -1,7 +1,12 @@
-import { relative } from "node:path";
 import { defineCommand } from "citty";
 import { outputError } from "../../lib/error.js";
-import { AGENT_NAMES, copySkills, getSkillSourceDir, resolveInstallDir } from "./install.js";
+import {
+  AGENT_NAMES,
+  copySkills,
+  formatInstalledPath,
+  getSkillSourceDir,
+  resolveInstallDir,
+} from "./install.js";
 
 export default defineCommand({
   meta: {
@@ -40,10 +45,11 @@ export default defineCommand({
       return process.exit(1);
     }
 
+    const path = formatInstalledPath(cwd, destDir);
     if (args.pretty) {
-      console.log(`Skills installed to ${relative(cwd, destDir)}`);
+      console.log(`Skills installed to ${path}`);
     } else {
-      console.log(JSON.stringify({ success: true, path: relative(cwd, destDir) }));
+      console.log(JSON.stringify({ success: true, path }));
     }
   },
 });

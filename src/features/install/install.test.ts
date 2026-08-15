@@ -3,7 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { copySkills, resolveInstallDir } from "./install.js";
+import { copySkills, formatInstalledPath, resolveInstallDir } from "./install.js";
 
 describe("resolveInstallDir", () => {
   const cwd = "/work/project";
@@ -57,14 +57,42 @@ describe("resolveInstallDir", () => {
     });
   });
 
-  // citty は値なしの `--dest` を空文字にするため、cwd 直下への展開を防ぐ
-  it("dest が空文字ならエラーを返す", () => {
-    const result = resolveInstallDir({ cwd, dest: "" });
+  // citty は値なしの `--dest` を空文字にし、後続がフラグでもそのまま値にするため、
+  // どちらも弾かないと cwd 直下にゴミディレクトリが作られる
+  it.each(["", "   ", "--pretty", "-p"])("dest が %o ならエラーを返す", (dest) => {
+    const result = resolveInstallDir({ cwd, dest });
 
     expect(result._unsafeUnwrapErr()).toEqual({
       type: "CUSTOM_ERROR",
       message: "--dest requires a path",
     });
+  });
+
+  // cwd 自身を指されるとスキルがプロジェクト直下に展開されてしまう
+  it.each([".", "./", "sub/..", cwd])("dest が %o なら cwd 指定としてエラーを返す", (dest) => {
+    const result = resolveInstallDir({ cwd, dest });
+
+    expect(result._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: "--dest must not be the current directory",
+    });
+  });
+});
+
+describe("formatInstalledPath", () => {
+  const cwd = resolve("/work/project");
+
+  it("cwd 配下なら相対パスを返す", () => {
+    expect(formatInstalledPath(cwd, join(cwd, ".claude", "skills"))).toBe(
+      join(".claude", "skills"),
+    );
+  });
+
+  // cwd 外を `../../..` で返すと、受け取る側が cwd を知らないと解釈できない
+  it("cwd 外なら絶対パスをそのまま返す", () => {
+    const outside = resolve("/elsewhere/skills");
+
+    expect(formatInstalledPath(cwd, outside)).toBe(outside);
   });
 });
 

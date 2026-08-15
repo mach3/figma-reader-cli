@@ -6,6 +6,31 @@ allowed-tools: Bash(figma-reader:*)
 
 # Figma Design Data with figma-reader
 
+## Cost model — read this before your first call
+
+Figma's API rate limit is severe and recovery is measured in **hours**. Treat every call as a scarce shared resource, not a free lookup.
+
+**Two independent budgets.** `inspect` spends `/v1/files`; `export` spends `/v1/images`. Exhausting one does not block the other — an `export` was observed succeeding while `inspect` was already returning 429.
+
+**The budget is small.** Observed in practice: one `inspect --styles` on a frame plus one `inspect --depth 2` on a page was enough to exhaust the files budget. A single `export` was enough to exhaust the images budget.
+
+**`retryAfter` is in seconds, and the values are enormous.** Observed 27,000 (~7.5 h) on the first 429, rising to 96,000 (~26 h) after retries. **Retrying while limited extends the lock.** A day of work can be lost to a handful of careless calls.
+
+### Hard rules
+
+1. **On 429, do not retry and do not wait.** Stop, report to the user, and ask them to export from the Figma app (browser/desktop) — that path does not touch the API budget. See [Error handling](#error-handling).
+2. **One `inspect` and one `export` per screen.** Inspect the common ancestor (`--styles` brings every descendant along), and batch every vector into a single `export --ids "a,b,c"`. **Never call `export` once per node** — cost is per request, not per node, so ten icons cost the same as one.
+3. **Plan the whole fetch before the first call.** List every node you need — structure *and* every vector you will have to export — then spend the two calls. Discovering afterwards that one more icon is missing can cost a day.
+4. **Read `components` and `componentSets`, not just `document`.** They are siblings of `document` in the same response and they tell you *what else you need to fetch*. An instance whose component is named `state=default` / `size=lg` is one variant of a set — the other states (hover, disabled, empty) live in the component set named by `componentSetId`, which is a **different node your screen fetch did not include**. Screens only ever carry the variant they render. Resolve this before spending call 1, and fetch the component sets in the same pass — noticing costs nothing, discovering it later costs a whole round of rate limit. A missed variant is not caught by lint, types, or a build: the screen looks right and the hover state is silently wrong, so it typically surfaces long after the budget is gone.
+5. **Never spend a call on speculation.** Do not fetch a page to check whether some frame (an OGP image, a desktop variant) exists. Ask the user.
+6. **Classify each shape's origin before fetching it.** The node name usually gives it away:
+   - `lucide/chevron-right`, `mdi/...` → an icon library. Install the package instead; 0 calls.
+   - Third-party brand marks (Google, GitHub, X) → official brand kits, or already vendored in the repo.
+   - Product-specific artwork (the product's own logo, wordmark, illustrations) → **the only category that genuinely requires Figma.**
+
+   Check the repository before exporting — the asset is often already committed.
+7. **`figma-reader me` costs a call too.** Run it only when diagnosing an auth failure, never as a routine preflight.
+
 ## Quick start
 
 ```bash
@@ -49,7 +74,7 @@ figma-reader inspect "<figma-url>" --profile personal
 ```bash
 figma-reader inspect "<figma-url>" --styles   # style-focused output (recommended for implementation)
 figma-reader inspect "<figma-url>"            # raw Figma API response
-figma-reader inspect "<figma-url>" --depth 3  # limit tree depth (structure overview only — see caveat below)
+figma-reader inspect "<figma-url>" --depth 3  # limit tree depth (structure overview only — see caveats below)
 figma-reader inspect "<figma-url>" --geometry # raw vector path data (cannot be combined with --styles)
 figma-reader inspect "<figma-url>" --pretty   # human-readable (cannot be combined with --styles)
 ```
@@ -82,13 +107,20 @@ jq '.. | objects | select(.name? == "CardHeader")' "$WORKDIR/design-1-2.json"
 
 ### Export
 
+**`--ids` is the default way to call this, not an extra.** One request can carry every node you need, and the rate limit charges per request — so exporting ten icons in one call costs exactly what one icon costs, while ten separate calls will lock you out. Collect the node ids first (from the saved `--styles` JSON), then fire once.
+
 ```bash
-figma-reader export "<figma-url>"
-figma-reader export "<figma-url>" --format svg --download --output ./icons
+# The normal case: every vector you need, in one request
+figma-reader export "<figma-url>" --ids "1:2,3:4,5:6" --format svg --download --output ./icons
+
+figma-reader export "<figma-url>"                                  # single node, URL mode
 figma-reader export "<figma-url>" --format png --scale 2 --download --output ./assets
 figma-reader export "<figma-url>" --format pdf --download
-figma-reader export "<figma-url>" --ids "1:2,3:4" --format svg --download
 ```
+
+The URL's own `node-id` is exported too, so `--ids` only needs the *additional* nodes.
+
+**Without `--download` the command returns S3 URLs instead of files.** Those URLs are served outside the Figma API, so a URL you already hold can be fetched with `curl` later without spending budget. This is not a way around the rate limit — the URL only exists for a node you already exported. Record the URLs you get.
 
 ### Install
 
@@ -136,7 +168,34 @@ See [references/inspect-output.md](references/inspect-output.md) for detailed fi
 
 With `--styles`, the response has the same top-level shape but each node keeps only identity, layout, and style fields. Empty arrays and `undefined` are omitted; `visible` appears only when `false` (a hidden fill/stroke layer — do not implement it).
 
+**`components` and `componentSets` sit beside `document` — read them.** They resolve every `INSTANCE`'s `componentId` and are the only place the response admits that a component has *other variants*:
+
+```json
+"components":    { "10:20": { "name": "state=default", "componentSetId": "10:99" } },
+"componentSets": { "10:99": { "name": "Button" } }
+```
+
+A component named `state=default` (or `size=lg`, `variant=outline`) is one cell of a variant matrix. The screen you fetched renders only that cell; **hover / disabled / empty states live in the component set, a node your fetch did not include.** Inspect the component set in the same pass — see hard rule 4. `jq` it out of the saved file first:
+
+```bash
+# Every variant set the screen touches, and which cell of it the screen rendered.
+# Anything listed under "sets" is a node you have NOT fetched yet.
+jq '.nodes[] | {
+  sets: (.componentSets | map_values(.name)),
+  variants: (.components | with_entries(select(.value.componentSetId)) | map_values({name, componentSetId}))
+}' "$WORKDIR/design-1-2.json"
+```
+
+```json
+{
+  "sets":     { "10:99": "Button" },
+  "variants": { "10:20": { "name": "state=default", "componentSetId": "10:99" } }
+}
+```
+
 Do not use `--depth` to shrink output for implementation work: it drops child nodes entirely, and colors/borders live on leaf nodes. Use `--styles` + file redirect + `jq` instead. `--depth` is only for a quick structure overview.
+
+**Do not run `--depth` against a page/canvas node.** Walking a whole page is the most expensive `/v1/files` request available, and the motive is usually speculative ("does a desktop variant exist?"). It is a common way to lose the files budget before the real fetch has started. If you need to know whether some frame exists, ask the user — they have the file open.
 
 ### export output (URL mode)
 
@@ -190,10 +249,13 @@ Errors are written to **stderr** as JSON with exit code 1:
 Rate-limited responses (429/503) include a `retryAfter` field:
 
 ```json
-{ "success": false, "error": "...", "retryAfter": 30 }
+{ "success": false, "error": "...", "retryAfter": 93026 }
 ```
 
+**`retryAfter` is in seconds**, and real values run from 27,000 (~7.5 h) to 96,000 (~26 h). This is not a transient you can sleep through. See [Cost model](#cost-model--read-this-before-your-first-call).
+
 Common errors and actions:
+- **429 / 503 (rate limited)**: Do **not** retry and do **not** wait — retrying while limited extends the lock (observed 27,000 s → 96,000 s). Stop immediately, tell the user how long the lock has left, and ask them to supply what is missing from the Figma app (browser/desktop): **Copy/Paste as → Copy as SVG**, or the Export panel. The app does not consume the API budget. Do not substitute hand-written or recalled paths for artwork you failed to fetch — a wrong glyph passes lint, typecheck, and build silently
 - **Authentication error**: Ask the user to run `figma-reader auth login`
 - **403 (invalid token)**: The token itself is invalid or expired. Another saved profile may work. Fallback procedure:
   1. `figma-reader auth list` to see saved profiles
@@ -214,16 +276,27 @@ Common errors and actions:
 
 ## Example: Get design info and hand off to implementation
 
+Two API calls total. Do not add a third.
+
 ```bash
-# 0. Prepare a working directory (use your scratchpad if available)
+# 0. Prepare a working directory (use your scratchpad if available). No API call.
 WORKDIR=$(mktemp -d)
-# 1. Check auth
-figma-reader me
-# 2. Get style-focused design data, saved to a file
+
+# 1. CALL 1 — structure and styles for the whole screen, saved to a file
 figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2" --styles > "$WORKDIR/design-1-2.json"
-# 3. Export reference image
-figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" --format png --scale 2 --download --output "$WORKDIR"
+
+# 2. Decide everything you need from the saved JSON before spending call 2:
+#    the reference PNG, plus every vector node id you will have to export.
+jq '[.. | objects | select(.type? == "VECTOR" or .type? == "INSTANCE") | {id, name, type}]' "$WORKDIR/design-1-2.json"
+
+# 3. CALL 2 — the reference image and every vector, in one request
+figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" \
+  --ids "10:2,10:3,10:4" --format svg --download --output "$WORKDIR"
 ```
+
+Skip `figma-reader me` — it spends a call and proves nothing that call 1 would not have told you.
+
+Note that step 3 mixes formats poorly: if you need both a PNG reference shot and SVG assets, that is genuinely two requests. Decide whether the reference shot is worth one, and prefer reading the design from the JSON when it is not.
 
 Then read the exported image and extract style values per node with `jq`. If the user needs implementation, suggest `/feature-dev`.
 
@@ -235,6 +308,8 @@ Subtle styles (1px borders, slight color differences) are easy to miss in a scre
 2. **Visual diff**: screenshot your implementation and compare it side by side with the exported Figma PNG.
 
 ## Example: Export multiple assets
+
+However many assets there are, this is **one** request. A loop over nodes is always wrong here.
 
 ```bash
 # Export specific nodes as SVG

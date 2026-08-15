@@ -11,6 +11,7 @@
     "dev": "node scripts/build.mjs --watch",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -31,6 +32,9 @@
   "author": "",
   "license": "MIT",
   "packageManager": "pnpm@10.30.1",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "citty": "^0.2.2",
     "neverthrow": "^8.2.0"

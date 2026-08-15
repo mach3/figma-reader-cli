@@ -12,7 +12,11 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18, 20]
+        # サポート下限の系列と最新の両端のみを検証する。
+        # 中間の 24 は両端が通れば壊れる余地がほぼないため省いている。
+        # 22 は常に最新の 22.x に解決されるため engines の下限
+        # (22.12) そのものを踏むわけではない点に注意。
+        node-version: [22, 26]
 
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +31,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm lint
+
+      - run: pnpm typecheck
 
       - run: pnpm test
 

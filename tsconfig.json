@@ -6,12 +6,13 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": true,
+    // ビルドは esbuild (scripts/build.mjs) が担うため tsc は型検査専用。
+    // emit を禁止しないと素の tsc が dist/src/** を吐き、bin の指す
+    // dist/index.js と食い違った成果物ができてしまう。
+    "noEmit": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

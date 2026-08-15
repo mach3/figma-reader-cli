@@ -3,7 +3,12 @@ import { type AppError, formatError, outputError } from "../../src/lib/error.js"
 
 describe("formatError", () => {
   it("API_ERROR は retryAfter の有無に関わらず同じメッセージ", () => {
-    const error: AppError = { type: "API_ERROR", status: 429, message: "Rate limited", retryAfter: 30 };
+    const error: AppError = {
+      type: "API_ERROR",
+      status: 429,
+      message: "Rate limited",
+      retryAfter: 30,
+    };
     expect(formatError(error)).toBe("Figma API error (429): Rate limited");
   });
 
@@ -38,7 +43,12 @@ describe("formatError", () => {
 describe("outputError", () => {
   it("JSON 出力に retryAfter を含める", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const error: AppError = { type: "API_ERROR", status: 429, message: "Rate limited", retryAfter: 30 };
+    const error: AppError = {
+      type: "API_ERROR",
+      status: 429,
+      message: "Rate limited",
+      retryAfter: 30,
+    };
 
     outputError(false, error);
 
@@ -69,15 +79,18 @@ describe("outputError", () => {
 
     outputError(false, { type: "CUSTOM_ERROR", message: "カスタムエラー" });
 
-    expect(spy).toHaveBeenCalledWith(
-      JSON.stringify({ success: false, error: "カスタムエラー" }),
-    );
+    expect(spy).toHaveBeenCalledWith(JSON.stringify({ success: false, error: "カスタムエラー" }));
     spy.mockRestore();
   });
 
   it("pretty モードでは人間向けテキストを出力する", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const error: AppError = { type: "API_ERROR", status: 429, message: "Rate limited", retryAfter: 30 };
+    const error: AppError = {
+      type: "API_ERROR",
+      status: 429,
+      message: "Rate limited",
+      retryAfter: 30,
+    };
 
     outputError(true, error);
 

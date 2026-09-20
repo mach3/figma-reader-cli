@@ -6,6 +6,20 @@ Field descriptions for the `figma-reader inspect` JSON output. Use this as a ref
 
 With `--styles`, each node keeps only the fields listed below (noise fields like `blendMode`, `constraints`, `scrollBehavior`, `absoluteRenderBounds`, `exportSettings` are removed). Empty arrays and undefined fields are omitted.
 
+## Freshness (`_cache`)
+
+Present on every response, including `--styles`:
+
+- **hit**: `true` when the response came from the local cache instead of the Figma API
+- **cached**: `true` when this response is on disk now. Always `true` on a hit. On a miss it is `false` when the response could not be stored (the write failed, or some requested id did not resolve), which means an identical request will spend another call
+- **fetchedAt**: ISO 8601 timestamp of when the data was actually retrieved from Figma
+- **ageSeconds**: how old the data is, in seconds. Always `>= 0`
+- **note**: the same information in prose, so the response explains itself without this reference. On a miss it also states whether the response was actually stored — a response that could **not** be cached (the write failed, or some requested id did not resolve) says `NOT cached`, meaning an identical request will spend another call
+
+There is no expiry, so a cache hit can be arbitrarily old. Report `ageSeconds` to the user before implementing from a hit.
+
+**`lastModified` (top level) is the value as of `fetchedAt`**, not the current state of the file. On a cache hit it does not move even when the design has changed, so it cannot be used as a freshness check — use `_cache` for that.
+
 ## Node Tree (`nodes`)
 
 Each node contains the following information:

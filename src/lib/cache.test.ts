@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -261,12 +261,26 @@ describe("readCache / writeCache / hasCachedEntry (実ファイル I/O)", () => 
     expect(await readCache(request, testDir)).toBeUndefined();
   });
 
-  it("deleteCache はキャッシュを消し、存在しなくても失敗しない", async () => {
+  it("deleteCache はキャッシュを消し、存在しなくても成功を返す", async () => {
     await writeCache(request, response, fetchedAt, testDir);
-    await deleteCache(request, testDir);
+    expect((await deleteCache(request, testDir)).isOk()).toBe(true);
 
     expect(await readCache(request, testDir)).toBeUndefined();
-    await expect(deleteCache(request, testDir)).resolves.toBeUndefined();
+    // 元から無い場合も成功扱い。呼び出し元は「消えている」ことだけを知りたい
+    expect((await deleteCache(request, testDir)).isOk()).toBe(true);
+  });
+
+  // 失敗を握り潰すと、古いエントリが残ったまま「消えた」と誤報告してしまう
+  it("deleteCache は削除できなければエラーを返す", async () => {
+    await writeCache(request, response, fetchedAt, testDir);
+    const dir = dirname(getCacheFilePath(request, testDir));
+    await chmod(dir, 0o500);
+
+    const result = await deleteCache(request, testDir);
+    await chmod(dir, 0o700);
+
+    expect(result._unsafeUnwrapErr().type).toBe("CONFIG_WRITE_ERROR");
+    expect(await readCache(request, testDir)).toBeDefined();
   });
 
   // キャッシュは最適化なので、どんな I/O エラーでもミス扱いに落ちなければならない

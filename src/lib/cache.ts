@@ -139,9 +139,24 @@ export async function readCache(
   }
 }
 
-/** キャッシュを削除する。存在しない・消せない場合も黙って無視する */
-export async function deleteCache(request: CacheRequest, cacheDir = getCacheDir()): Promise<void> {
-  await unlink(getCacheFilePath(request, cacheDir)).catch(() => {});
+/**
+ * キャッシュを削除する。元から存在しない場合は成功として扱う。
+ * 失敗を握り潰すと、取り直したデータを保存できなかったのに古いエントリが残り、
+ * 次の通常呼び出しがそれを hit として返してしまうため、結果は呼び出し元へ返す
+ */
+export async function deleteCache(
+  request: CacheRequest,
+  cacheDir = getCacheDir(),
+): Promise<Result<void, AppError>> {
+  try {
+    await unlink(getCacheFilePath(request, cacheDir));
+    return ok(undefined);
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return ok(undefined);
+    }
+    return err({ type: "CONFIG_WRITE_ERROR", cause: error });
+  }
 }
 
 /** 使えるキャッシュが存在するか。--refresh が失敗したときの案内に使う */
@@ -192,6 +207,8 @@ export type BuildCacheMetaInput = {
   hit: boolean;
   /** このレスポンスがディスク上のキャッシュに存在するか。ヒット時は常に true */
   cached: boolean;
+  /** 保存できなかったうえ、古いエントリの破棄にも失敗したか */
+  staleEntryRemains?: boolean;
   fetchedAt: string;
   now: number;
 };
@@ -202,11 +219,23 @@ export type BuildCacheMetaInput = {
  * コピーされる仕組みのため。CLI だけを更新したユーザーの手元には
  * キャッシュを知らない古い SKILL.md が残るので、出力自体を自己説明的にする
  */
-export function buildCacheMeta({ hit, cached, fetchedAt, now }: BuildCacheMetaInput): CacheMeta {
+export function buildCacheMeta({
+  hit,
+  cached,
+  staleEntryRemains = false,
+  fetchedAt,
+  now,
+}: BuildCacheMetaInput): CacheMeta {
   // 時計の巻き戻し（NTP 補正、VM スナップショットからの復帰）で負値になると
   // 「fetched -3h ago」のような出力になるため 0 で下限を切る
   const ageSeconds = Math.max(0, Math.floor((now - Date.parse(fetchedAt)) / 1000));
-  return { hit, cached, fetchedAt, ageSeconds, note: buildNote(hit, cached, ageSeconds) };
+  return {
+    hit,
+    cached,
+    fetchedAt,
+    ageSeconds,
+    note: buildNote({ hit, cached, staleEntryRemains, ageSeconds }),
+  };
 }
 
 /**
@@ -214,12 +243,26 @@ export function buildCacheMeta({ hit, cached, fetchedAt, now }: BuildCacheMetaIn
  * 保存できなかったことを黙っていると「もう一度呼んでも無料」と誤解され、
  * レートリミットを不意に消費させてしまう
  */
-function buildNote(hit: boolean, cached: boolean, ageSeconds: number): string {
+function buildNote({
+  hit,
+  cached,
+  staleEntryRemains,
+  ageSeconds,
+}: {
+  hit: boolean;
+  cached: boolean;
+  staleEntryRemains: boolean;
+  ageSeconds: number;
+}): string {
   if (hit) {
     return `Served from local cache fetched ${formatAge(ageSeconds)} ago; the design may have changed since. Re-run with --refresh to fetch from the Figma API.`;
   }
-  return cached
-    ? "Fetched from the Figma API and cached locally."
+  if (cached) {
+    return "Fetched from the Figma API and cached locally.";
+  }
+  // 「次回は API を呼ぶ」と言い切れるのは古いエントリが残っていないときだけ
+  return staleEntryRemains
+    ? "Fetched from the Figma API but NOT cached, and an older cached response could not be removed; an identical request without --refresh may return that stale response instead."
     : "Fetched from the Figma API but NOT cached; an identical request will call the API again.";
 }
 

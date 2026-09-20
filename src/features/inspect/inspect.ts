@@ -125,6 +125,8 @@ export type CachedNodesResult = {
   request: CacheRequest;
   /** キャッシュ書き込みに失敗したか。コマンド自体は成功させたうえで呼び出し元が警告する */
   cacheWriteFailed: boolean;
+  /** 保存しなかったうえ、古いエントリの破棄にも失敗したか。次の通常呼び出しが古い結果を返しうる */
+  staleEntryRemains: boolean;
 };
 
 /**
@@ -150,6 +152,7 @@ export async function getNodesWithCache(
         }),
         request,
         cacheWriteFailed: false,
+        staleEntryRemains: false,
       });
     }
   }
@@ -167,30 +170,30 @@ export async function getNodesWithCache(
 
   // TTL を設けていないため、権限反映待ち・未作成フレーム・id の typo で得た
   // 空の結果を保存すると永久に固定されてしまう
-  if (hasUnresolvedNode(request, response)) {
-    // --refresh で「もう無い」と分かったのに古いエントリを残すと、次の通常呼び出しが
-    // 削除前のデザインを hit として返してしまう
-    await deleteCache(request, options.cacheDir);
-    return ok({
-      response,
-      meta: buildCacheMeta({ hit: false, cached: false, fetchedAt, now: Date.now() }),
-      request,
-      cacheWriteFailed: false,
-    });
-  }
+  const writeResult = hasUnresolvedNode(request, response)
+    ? undefined
+    : await writeCache(request, response, fetchedAt, options.cacheDir);
+  const stored = writeResult?.isOk() ?? false;
 
-  const writeResult = await writeCache(request, response, fetchedAt, options.cacheDir);
+  // 取得したのに保存しなかった場合は、古いエントリを必ず消す。writeCache は
+  // 一時ファイル → rename で書くため失敗時は既存ファイルが手つかずで残り、
+  // --refresh で取り直した直後でも次の通常呼び出しが古いデザインを hit として
+  // 返してしまう。「保存しなかったならディスクにも残っていない」を不変条件にする
+  const discardResult = stored ? undefined : await deleteCache(request, options.cacheDir);
+  const staleEntryRemains = discardResult?.isErr() ?? false;
 
   return ok({
     response,
     meta: buildCacheMeta({
       hit: false,
-      cached: writeResult.isOk(),
+      cached: stored,
+      staleEntryRemains,
       fetchedAt,
       now: Date.now(),
     }),
     request,
-    cacheWriteFailed: writeResult.isErr(),
+    cacheWriteFailed: writeResult?.isErr() ?? false,
+    staleEntryRemains,
   });
 }
 

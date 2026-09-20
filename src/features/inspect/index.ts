@@ -102,12 +102,19 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const { response, meta, request, cacheWriteFailed } = nodesResult.value;
+    const { response, meta, request, cacheWriteFailed, staleEntryRemains } = nodesResult.value;
 
     // 警告は stdout の JSON を汚さないよう stderr に出す
-    if (cacheWriteFailed) {
+    if (cacheWriteFailed && !staleEntryRemains) {
       console.error(
         "Warning: failed to write the cache; the next run will call the Figma API again",
+      );
+    }
+    // 取り直したデータを保存できず、かつ古いエントリも消せなかった場合だけは
+    // 「次回は API を呼ぶ」が成り立たない。古い結果が返りうることを伝える
+    if (staleEntryRemains) {
+      console.error(
+        "Warning: could not store this response and could not remove the older cached one; running without --refresh may return the stale response",
       );
     }
     // 文面は _cache.note を使い回す。同じ案内を二重に管理しない

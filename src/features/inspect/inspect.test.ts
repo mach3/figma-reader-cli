@@ -1,4 +1,4 @@
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -271,6 +271,43 @@ describe("getNodesWithCache", () => {
 
     const url = spy.mock.calls[0]?.[0] as string;
     expect(decodeURIComponent(url)).toContain("ids=1:23,4:56");
+  });
+
+  // writeCache は tmp -> rename で書くため、失敗すると既存ファイルが手つかずで残る。
+  // 取り直した直後に古いデザインが hit として返る状態遷移を塞ぐ
+  it("refresh の書き込みが失敗したら古いエントリを残さない", async () => {
+    mockFetch(okBody);
+    await getNodesWithCache(base);
+    expect(await hasCachedNodes(base)).toBe(true);
+
+    // 一時ファイルのパスをディレクトリで塞ぎ、writeCache だけを失敗させる。
+    // 保存先ディレクトリは書けるままなので、古いエントリは消せる状態に保つ
+    const filePath = getCacheFilePath(normalizeRequest(base), cacheDir);
+    await mkdir(`${filePath}.${process.pid}.tmp`, { recursive: true });
+
+    const result = await getNodesWithCache({ ...base, refresh: true });
+
+    expect(result._unsafeUnwrap().cacheWriteFailed).toBe(true);
+    expect(await hasCachedNodes(base)).toBe(false);
+  });
+
+  it("保存も破棄もできなければ staleEntryRemains を立てて note で警告する", async () => {
+    mockFetch(okBody);
+    await getNodesWithCache(base);
+
+    // ディレクトリごと読み書き不可にして writeCache も deleteCache も失敗させる
+    const dir = dirname(getCacheFilePath(normalizeRequest(base), cacheDir));
+    await chmod(dir, 0o500);
+
+    const result = await getNodesWithCache({ ...base, refresh: true });
+    await chmod(dir, 0o700);
+
+    const value = result._unsafeUnwrap();
+    expect(value.staleEntryRemains).toBe(true);
+    expect(value.meta.cached).toBe(false);
+    expect(value.meta.note).toContain("stale");
+    // 古いエントリは実際に残っている
+    expect(await hasCachedNodes(base)).toBe(true);
   });
 
   it("API エラー時はキャッシュを作らない", async () => {

@@ -1,5 +1,15 @@
 import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
+import {
+  buildCacheMeta,
+  type CacheMeta,
+  type CacheRequest,
+  deleteCache,
+  hasCachedEntry,
+  normalizeRequest,
+  readCache,
+  writeCache,
+} from "../../lib/cache.js";
 import type { AppError } from "../../lib/error.js";
 import { type FigmaNodesResponse, figmaGet } from "../../lib/figma-client.js";
 
@@ -51,7 +61,11 @@ export type GetNodesOptions = {
   geometry?: boolean;
 };
 
-/** Figma API から指定ノードのデザインコンテキストを取得する */
+/**
+ * Figma API から指定ノードのデザインコンテキストを取得する。
+ * inspect コマンドからはキャッシュを経由する `getNodesWithCache` を使うこと。
+ * この関数を直接呼ぶとレートリミット対策のキャッシュを素通りする
+ */
 export async function getNodes(
   options: GetNodesOptions,
 ): Promise<Result<FigmaNodesResponse, AppError>> {
@@ -89,4 +103,103 @@ export async function getNodes(
   }
 
   return result;
+}
+
+export type CacheableNodesOptions = GetNodesOptions & { cacheDir?: string };
+
+export type GetNodesWithCacheOptions = CacheableNodesOptions & { refresh: boolean };
+
+/**
+ * 同じ条件のキャッシュが手元にあるかを返す。
+ * キャッシュキーの組み立てを getNodesWithCache と同じ場所に閉じ込めるための入口で、
+ * --refresh が失敗したときに「キャッシュを使えば取得できる」と案内するために使う
+ */
+export async function hasCachedNodes(options: CacheableNodesOptions): Promise<boolean> {
+  return hasCachedEntry(normalizeRequest(options), options.cacheDir);
+}
+
+export type CachedNodesResult = {
+  response: FigmaNodesResponse;
+  meta: CacheMeta;
+  /** 正規化済みのリクエスト。呼び出し元が「要求した node-id」を知るために使う */
+  request: CacheRequest;
+  /** キャッシュ書き込みに失敗したか。コマンド自体は成功させたうえで呼び出し元が警告する */
+  cacheWriteFailed: boolean;
+};
+
+/**
+ * キャッシュを参照しつつデザインコンテキストを取得する。
+ * Figma API のレートリミットは回復までが数時間〜1日規模のため、既定では
+ * ローカルのキャッシュを優先し、`refresh` が指定されたときだけ API を呼ぶ
+ */
+export async function getNodesWithCache(
+  options: GetNodesWithCacheOptions,
+): Promise<Result<CachedNodesResult, AppError>> {
+  const request = normalizeRequest(options);
+
+  if (!options.refresh) {
+    const entry = await readCache(request, options.cacheDir);
+    if (entry) {
+      return ok({
+        response: entry.response,
+        meta: buildCacheMeta({
+          hit: true,
+          cached: true,
+          fetchedAt: entry.fetchedAt,
+          now: Date.now(),
+        }),
+        request,
+        cacheWriteFailed: false,
+      });
+    }
+  }
+
+  // API へ送る id とキャッシュキー／未解決判定に使う id を同じ値から導出する。
+  // 別々にすると、入力に空白が混ざったときに送信側と判定側がズレ、
+  // 正常なレスポンスが恒久的に「未解決」扱いになってキャッシュが効かなくなる
+  const result = await getNodes({ ...options, nodeId: request.nodeIds.join(",") });
+  if (result.isErr()) {
+    return err(result.error);
+  }
+
+  const response = result.value;
+  const fetchedAt = new Date().toISOString();
+
+  // TTL を設けていないため、権限反映待ち・未作成フレーム・id の typo で得た
+  // 空の結果を保存すると永久に固定されてしまう
+  if (hasUnresolvedNode(request, response)) {
+    // --refresh で「もう無い」と分かったのに古いエントリを残すと、次の通常呼び出しが
+    // 削除前のデザインを hit として返してしまう
+    await deleteCache(request, options.cacheDir);
+    return ok({
+      response,
+      meta: buildCacheMeta({ hit: false, cached: false, fetchedAt, now: Date.now() }),
+      request,
+      cacheWriteFailed: false,
+    });
+  }
+
+  const writeResult = await writeCache(request, response, fetchedAt, options.cacheDir);
+
+  return ok({
+    response,
+    meta: buildCacheMeta({
+      hit: false,
+      cached: writeResult.isOk(),
+      fetchedAt,
+      now: Date.now(),
+    }),
+    request,
+    cacheWriteFailed: writeResult.isErr(),
+  });
+}
+
+/**
+ * 要求した node-id のどれかが取得できていないかを判定する。
+ * Figma は解決できない id を HTTP 200 + `nodes[id] === null` で返すが、
+ * キーごと欠けるケースもあるため、null の有無だけでなく要求した id が
+ * すべて揃っているかも確かめる
+ */
+function hasUnresolvedNode(request: CacheRequest, response: FigmaNodesResponse): boolean {
+  return request.nodeIds.some((id) => response.nodes[id] == null);
 }

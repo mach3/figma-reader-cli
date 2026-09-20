@@ -85,6 +85,21 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 | `--styles` | Style-focused JSON: removes noise fields, keeps fills / strokes / effects / layout / text styles. Cannot be combined with `--pretty` or `--geometry` | `false` |
 | `--depth <N>` | Limit node tree depth (positive integer) | No limit |
 | `--geometry` | Include vector data (path information) | `false` |
+| `--refresh` | Bypass the local cache and fetch from the Figma API | `false` |
+
+#### Caching
+
+Figma's API rate limit recovers over hours, so `inspect` responses are cached on disk and reused across sessions. A call hits the cache only when the file key, node ids, `--depth`, and `--geometry` all match a previous call; anything else costs a request. There is no expiry — pass `--refresh` when you know the design has changed.
+
+Every response carries a `_cache` object reporting whether it came from the cache and how old it is:
+
+```json
+{ "_cache": { "hit": true, "cached": true, "fetchedAt": "2026-09-19T04:00:00.000Z", "ageSeconds": 93600, "note": "Served from local cache ..." } }
+```
+
+Note that `lastModified` reflects the file as of `fetchedAt`, not the current state of the Figma file.
+
+Cache files live in `~/.cache/figma-reader/` (or `$XDG_CACHE_HOME/figma-reader/` when that variable holds an absolute path). Nothing else depends on them, so the directory can be deleted at any time; the next call simply fetches again.
 
 ### `export` - Export images
 

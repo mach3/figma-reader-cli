@@ -8,15 +8,26 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
+      # OS 固有の失敗か全 OS で起きる失敗かを1回の実行で切り分けたいため、
+      # 1ジョブの失敗で残りをキャンセルしない。
+      fail-fast: false
       matrix:
-        # サポート下限の系列と最新の両端のみを検証する。
+        # Node はサポート下限の系列と最新の両端のみを検証する。
         # 中間の 24 は両端が通れば壊れる余地がほぼないため省いている。
         # 22 は常に最新の 22.x に解決されるため engines の下限
         # (22.12) そのものを踏むわけではない点に注意。
-        node-version: [22, 26]
+        # macOS は第一の想定実行環境だが、Node の両端検証は ubuntu が担うため
+        # 代表 1 バージョン（最新側）に絞り、全体を 3 ジョブに収めている。
+        include:
+          - os: ubuntu-latest
+            node-version: 22
+          - os: ubuntu-latest
+            node-version: 26
+          - os: macos-latest
+            node-version: 26
 
     steps:
       - uses: actions/checkout@v4

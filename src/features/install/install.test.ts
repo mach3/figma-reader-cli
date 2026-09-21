@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { copySkills, formatInstalledPath, resolveInstallDir } from "./install.js";
 
 describe("resolveInstallDir", () => {
-  const cwd = "/work/project";
+  // 実装は resolve(cwd, dest) を使うため、ドライブレターのないリテラルを渡すと
+  // Windows で join ベースの期待値と食い違う。resolve 済みの値を起点にする
+  const cwd = resolve("/work/project");
 
   it("agent 未指定なら .claude 配下に解決する", () => {
     const result = resolveInstallDir({ cwd });

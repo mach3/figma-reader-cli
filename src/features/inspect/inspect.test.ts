@@ -11,6 +11,11 @@ import {
   parseDepth,
 } from "./inspect.js";
 
+// Windows は POSIX のパーミッションビットを実装しておらず、chmod で書き込み不可にしても
+// 実際には失敗しない。権限で失敗を再現するテストは Windows では成立しないため、
+// サポート対象の OS でのみ実行する
+const itPosix = it.skipIf(process.platform === "win32");
+
 describe("checkStylesConflict", () => {
   it("--styles 単体は通す", () => {
     const result = checkStylesConflict({ styles: true, pretty: false, geometry: false });
@@ -291,7 +296,7 @@ describe("getNodesWithCache", () => {
     expect(await hasCachedNodes(base)).toBe(false);
   });
 
-  it("保存も破棄もできなければ staleEntryRemains を立てて note で警告する", async () => {
+  itPosix("保存も破棄もできなければ staleEntryRemains を立てて note で警告する", async () => {
     mockFetch(okBody);
     await getNodesWithCache(base);
 

@@ -17,6 +17,11 @@ import {
 } from "./cache.js";
 import type { FigmaNodesResponse } from "./figma-client.js";
 
+// Windows は POSIX のパーミッションビットを実装しておらず、mode は読み取り専用ビット以外
+// 無視される。権限で保護を効かせたり失敗を再現したりするテストは Windows では
+// 成立しないため、サポート対象の OS でのみ実行する
+const itPosix = it.skipIf(process.platform === "win32");
+
 const request: CacheRequest = {
   fileKey: "ABC123",
   nodeIds: ["1:2"],
@@ -202,7 +207,7 @@ describe("readCache / writeCache / hasCachedEntry (実ファイル I/O)", () => 
   });
 
   // 中身は未公開のデザインデータなので同一マシンの他ユーザーから読めてはいけない
-  it("キャッシュファイルを 0600 で作成する", async () => {
+  itPosix("キャッシュファイルを 0600 で作成する", async () => {
     await writeCache(request, response, fetchedAt, testDir);
 
     const { mode } = await stat(getCacheFilePath(request, testDir));
@@ -271,7 +276,7 @@ describe("readCache / writeCache / hasCachedEntry (実ファイル I/O)", () => 
   });
 
   // 失敗を握り潰すと、古いエントリが残ったまま「消えた」と誤報告してしまう
-  it("deleteCache は削除できなければエラーを返す", async () => {
+  itPosix("deleteCache は削除できなければエラーを返す", async () => {
     await writeCache(request, response, fetchedAt, testDir);
     const dir = dirname(getCacheFilePath(request, testDir));
     await chmod(dir, 0o500);

@@ -14,6 +14,12 @@ AI エージェントがサブプロセスとして実行し、正確で必要�
 
 **Node.js 22.12 以降**が必要です。Node 18 / 20 は EOL のためサポート対象外です。
 
+サポート対象プラットフォームは **macOS / Linux** です。Windows はベストエフォートで、動作は妨げませんが正式なサポート対象ではなく、以下の既知の差異は解消しません。
+
+- 設定ファイルとレスポンスキャッシュは `%APPDATA%` / `%LOCALAPPDATA%` ではなく、ホームディレクトリ配下（`.config/figma-reader/config.json` と `.cache/figma-reader/`）に置かれます。Windows では `C:\Users\<name>\.config\...` および `C:\Users\<name>\.cache\...` に解決されます
+- キャッシュファイルは、同一マシンの他ユーザーからデザインデータを読まれないよう `0600` で作成されます。Windows は POSIX のパーミッションビットを無視するため、この保護は働きません
+- `~` から始まるパス（`--dest ~/.codex/skills/figma-reader-cli` など）は `cmd.exe` / PowerShell では展開されません。絶対パスを指定してください
+
 ```bash
 npm install -g figma-reader
 ```
@@ -25,6 +31,7 @@ Figma API を利用するには [Personal Access Token](https://www.figma.com/de
 ### 方法 1: `auth login` コマンド（推奨）
 
 対話的にトークンを入力し、設定ファイル（`~/.config/figma-reader/config.json`）に保存します。
+パスはホームディレクトリから解決されるため、Windows では `C:\Users\<name>\.config\figma-reader\config.json` になります。上記の `~` は表記上のもので、`cmd.exe` / PowerShell は展開しないため、自分でパスを入力する場合は注意してください。
 複数のトークンをプロファイル名付きで保存し、いつでも切り替えられます。
 
 ```bash
@@ -132,7 +139,7 @@ figma-reader install --dest .windsurf/skills/figma-reader-cli
 | `codex` | `.agents/skills/figma-reader-cli/` |
 | `antigravity` | `.agents/skills/figma-reader-cli/` |
 
-`codex` と `antigravity` は同じディレクトリに解決されます。どちらもリポジトリスコープのスキルを `.agents/` 配下から探すためです。Codex CLI のユーザースコープに入れたい場合は `--dest ~/.codex/skills/figma-reader-cli` を使ってください。
+`codex` と `antigravity` は同じディレクトリに解決されます。どちらもリポジトリスコープのスキルを `.agents/` 配下から探すためです。Codex CLI のユーザースコープに入れたい場合は `--dest ~/.codex/skills/figma-reader-cli` を使ってください。Windows の `cmd.exe` / PowerShell は `~` を展開しないため、絶対パスを指定してください。
 
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|

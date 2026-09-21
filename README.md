@@ -16,6 +16,11 @@ Primarily designed for AI agents to execute as a subprocess and obtain accurate,
 
 Requires **Node.js 22.12 or later**. Node 18 and 20 have reached end-of-life and are no longer supported.
 
+The supported platforms are **macOS and Linux**. Windows is best-effort: the CLI is expected to run, but it is not an officially supported target, and the following known differences will not be addressed.
+
+- The config file is stored under your home directory at `.config/figma-reader/config.json` (on Windows, `C:\Users\<name>\.config\figma-reader\config.json`), not under `%APPDATA%`.
+- Paths beginning with `~` (such as `--dest ~/.codex/skills/figma-reader-cli`) are not expanded by `cmd.exe` or PowerShell. Pass an absolute path instead.
+
 ```bash
 npm install -g figma-reader
 ```
@@ -27,6 +32,7 @@ A [Personal Access Token](https://www.figma.com/developers/api#access-tokens) is
 ### Option 1: `auth login` command (Recommended)
 
 Interactively enter your token and save it to a config file (`~/.config/figma-reader/config.json`).
+The path is resolved from your home directory, so on Windows it is `C:\Users\<name>\.config\figma-reader\config.json`. The `~` above is shorthand: `cmd.exe` and PowerShell do not expand it if you type the path yourself.
 Multiple tokens can be saved under different profile names and switched at any time.
 
 ```bash
@@ -134,7 +140,7 @@ The bundled skill is in the SKILL.md-based Agent Skills format and is copied as-
 | `codex` | `.agents/skills/figma-reader-cli/` |
 | `antigravity` | `.agents/skills/figma-reader-cli/` |
 
-`codex` and `antigravity` resolve to the same directory: both look up repository-scoped skills under `.agents/`. To install for Codex CLI at the user scope instead, use `--dest ~/.codex/skills/figma-reader-cli`.
+`codex` and `antigravity` resolve to the same directory: both look up repository-scoped skills under `.agents/`. To install for Codex CLI at the user scope instead, use `--dest ~/.codex/skills/figma-reader-cli`. On Windows, `cmd.exe` and PowerShell do not expand `~`, so pass an absolute path instead.
 
 | Option | Description | Default |
 |--------|-------------|---------|

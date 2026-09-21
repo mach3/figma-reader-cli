@@ -16,7 +16,8 @@ AI エージェントがサブプロセスとして実行し、正確で必要�
 
 サポート対象プラットフォームは **macOS / Linux** です。Windows はベストエフォートで、動作は妨げませんが正式なサポート対象ではなく、以下の既知の差異は解消しません。
 
-- 設定ファイルは `%APPDATA%` ではなく、ホームディレクトリ配下の `.config/figma-reader/config.json`（Windows では `C:\Users\<name>\.config\figma-reader\config.json`）に置かれます
+- 設定ファイルとレスポンスキャッシュは `%APPDATA%` / `%LOCALAPPDATA%` ではなく、ホームディレクトリ配下（`.config/figma-reader/config.json` と `.cache/figma-reader/`）に置かれます。Windows では `C:\Users\<name>\.config\...` および `C:\Users\<name>\.cache\...` に解決されます
+- キャッシュファイルは、同一マシンの他ユーザーからデザインデータを読まれないよう `0600` で作成されます。Windows は POSIX のパーミッションビットを無視するため、この保護は働きません
 - `~` から始まるパス（`--dest ~/.codex/skills/figma-reader-cli` など）は `cmd.exe` / PowerShell では展開されません。絶対パスを指定してください
 
 ```bash

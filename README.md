@@ -18,7 +18,8 @@ Requires **Node.js 22.12 or later**. Node 18 and 20 have reached end-of-life and
 
 The supported platforms are **macOS and Linux**. Windows is best-effort: the CLI is expected to run, but it is not an officially supported target, and the following known differences will not be addressed.
 
-- The config file is stored under your home directory at `.config/figma-reader/config.json` (on Windows, `C:\Users\<name>\.config\figma-reader\config.json`), not under `%APPDATA%`.
+- The config file and the response cache are stored under your home directory (`.config/figma-reader/config.json` and `.cache/figma-reader/`), not under `%APPDATA%` or `%LOCALAPPDATA%`. On Windows they resolve to `C:\Users\<name>\.config\...` and `C:\Users\<name>\.cache\...`.
+- Cache files are created with mode `0600` so that other users of the machine cannot read the design data they hold. Windows ignores POSIX permission bits, so that protection does not apply there.
 - Paths beginning with `~` (such as `--dest ~/.codex/skills/figma-reader-cli`) are not expanded by `cmd.exe` or PowerShell. Pass an absolute path instead.
 
 ```bash

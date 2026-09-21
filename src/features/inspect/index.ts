@@ -1,10 +1,11 @@
 import { defineCommand } from "citty";
+import { type CacheMeta, formatAge, STALE_WARNING_SECONDS } from "../../lib/cache.js";
 import { resolveToken } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
 import { parseFigmaUrl } from "../../lib/figma-url.js";
 import { filterStylesResponse } from "./filter-styles.js";
-import { checkStylesConflict, getNodes, parseDepth } from "./inspect.js";
+import { checkStylesConflict, getNodesWithCache, hasCachedNodes, parseDepth } from "./inspect.js";
 
 export default defineCommand({
   meta: {
@@ -36,6 +37,11 @@ export default defineCommand({
       default: false,
       description:
         "Output style-focused JSON (removes noise fields, keeps fills/strokes/effects etc.)",
+    },
+    refresh: {
+      type: "boolean",
+      default: false,
+      description: "Bypass the local cache and fetch from the Figma API",
     },
     profile: {
       type: "string",
@@ -75,37 +81,77 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const nodesResult = await getNodes({
+    const nodesOptions = {
       fileKey,
       nodeId,
       token: tokenResult.value,
       depth: depthResult.value,
       geometry: args.geometry,
-    });
+    };
+
+    const nodesResult = await getNodesWithCache({ ...nodesOptions, refresh: args.refresh });
 
     if (nodesResult.isErr()) {
-      outputError(args.pretty, nodesResult.error);
+      // --refresh は API を必ず呼ぶため、429 などで失敗すると使えるキャッシュが
+      // あっても何も返らない。手元にキャッシュがあることだけは伝える
+      const hint =
+        args.refresh && (await hasCachedNodes(nodesOptions))
+          ? "A cached response for this request is available. Re-run without --refresh to use it."
+          : undefined;
+      outputError(args.pretty, nodesResult.error, hint);
       return process.exit(1);
     }
 
-    const response = nodesResult.value;
+    const { response, meta, request, cacheWriteFailed, staleEntryRemains } = nodesResult.value;
+
+    // 警告は stdout の JSON を汚さないよう stderr に出す
+    if (cacheWriteFailed && !staleEntryRemains) {
+      console.error(
+        "Warning: failed to write the cache; the next run will call the Figma API again",
+      );
+    }
+    // 取り直したデータを保存できず、かつ古いエントリも消せなかった場合だけは
+    // 「次回は API を呼ぶ」が成り立たない。古い結果が返りうることを伝える
+    if (staleEntryRemains) {
+      console.error(
+        "Warning: could not store this response and could not remove the older cached one; running without --refresh may return the stale response",
+      );
+    }
+    // 文面は _cache.note を使い回す。同じ案内を二重に管理しない
+    if (meta.hit && meta.ageSeconds > STALE_WARNING_SECONDS) {
+      console.error(`Warning: ${meta.note}`);
+    }
 
     if (args.pretty) {
-      formatNodesResponse(response);
+      formatNodesResponse(response, meta, request.nodeIds);
     } else {
-      console.log(JSON.stringify(args.styles ? filterStylesResponse(response) : response));
+      console.log(
+        JSON.stringify({
+          _cache: meta,
+          ...(args.styles ? filterStylesResponse(response) : response),
+        }),
+      );
     }
   },
 });
 
-function formatNodesResponse(response: FigmaNodesResponse): void {
+function formatNodesResponse(
+  response: FigmaNodesResponse,
+  meta: CacheMeta,
+  requestedNodeIds: string[],
+): void {
+  console.log(formatCacheLine(meta));
   console.log(`File: ${response.name}`);
   console.log(`Last Modified: ${response.lastModified}`);
   console.log(`Editor: ${response.editorType}`);
   console.log("");
 
-  for (const [id, nodeInfo] of Object.entries(response.nodes)) {
-    if (nodeInfo === null) {
+  // レスポンスではなく要求した id を起点に回す。Figma は解決できない id を
+  // null で返すこともキーごと落とすこともあり、後者だと出力から消えて
+  // 「取得できた」ように見えてしまう
+  for (const id of requestedNodeIds) {
+    const nodeInfo = response.nodes[id];
+    if (nodeInfo === null || nodeInfo === undefined) {
       console.log(`Node ${id}: not found`);
       continue;
     }
@@ -123,6 +169,15 @@ function formatNodesResponse(response: FigmaNodesResponse): void {
       }
     }
   }
+}
+
+/** pretty 出力の 1 行目。JSON の _cache と同じ事実を人間向けに縮めたもの */
+function formatCacheLine(meta: CacheMeta): string {
+  if (meta.hit) {
+    return `Cache: hit (fetched ${formatAge(meta.ageSeconds)} ago)`;
+  }
+  // 保存できていない場合に黙っていると「次回はキャッシュから返る」と誤解される
+  return meta.cached ? "Cache: miss (stored)" : "Cache: miss (NOT stored)";
 }
 
 function formatNode(node: FigmaNode, depth: number): void {

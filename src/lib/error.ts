@@ -41,8 +41,11 @@ export function formatError(error: AppError): string {
   }
 }
 
-/** エラーを stderr に出力する。デフォルトは JSON、pretty で人間向けテキスト */
-export function outputError(pretty: boolean, error: AppError): void {
+/**
+ * エラーを stderr に出力する。デフォルトは JSON、pretty で人間向けテキスト。
+ * hint は失敗そのものではなく回復手段を伝えるための任意の追記
+ */
+export function outputError(pretty: boolean, error: AppError, hint?: string): void {
   const message = formatError(error);
 
   if (pretty) {
@@ -50,11 +53,17 @@ export function outputError(pretty: boolean, error: AppError): void {
     if (error.type === "API_ERROR" && error.retryAfter !== undefined) {
       console.error(`Retry after ${error.retryAfter} seconds`);
     }
+    if (hint !== undefined) {
+      console.error(hint);
+    }
   } else {
-    const json =
-      error.type === "API_ERROR" && error.retryAfter !== undefined
-        ? { success: false, error: message, retryAfter: error.retryAfter }
-        : { success: false, error: message };
+    const json = {
+      success: false,
+      error: message,
+      ...(error.type === "API_ERROR" &&
+        error.retryAfter !== undefined && { retryAfter: error.retryAfter }),
+      ...(hint !== undefined && { hint }),
+    };
     console.error(JSON.stringify(json));
   }
 }

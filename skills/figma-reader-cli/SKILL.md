@@ -14,6 +14,14 @@ Figma's API rate limit is severe and recovery is measured in **hours**. Treat ev
 
 **The budget is small.** Observed in practice: one `inspect --styles` on a frame plus one `inspect --depth 2` on a page was enough to exhaust the files budget. A single `export` was enough to exhaust the images budget.
 
+**`inspect` results are cached on disk and survive across sessions — but only for an exact repeat.** A cache hit costs nothing. A hit requires the file key, the *set* of node ids, `--depth`, and `--geometry` to all match a previous call. Change any one of them and you pay full price:
+
+- `node-id=1-2` then `node-id=1-2,10-99` are **two different requests**. The escalation in hard rule 4 always costs a second call — that is expected, not a failure to plan.
+- Adding or removing `--depth` is a different request. `--styles` and `--pretty` are not (they only reshape output you already paid for).
+- A response in which any requested id did not resolve (it came back `null`, or was missing entirely) is **never cached**, so that exact combination costs a call every time until the id resolves. `_cache.cached` is `false` in that case.
+
+This changes nothing about hard rules 3 and 5: plan the whole fetch before the first call, and never spend one on speculation. The cache rewards repeating a call you already made; it does nothing for the exploratory call you were about to invent.
+
 **`retryAfter` is in seconds, and the values are enormous.** Observed 27,000 (~7.5 h) on the first 429, rising to 96,000 (~26 h) after retries. **Retrying while limited extends the lock.** A day of work can be lost to a handful of careless calls.
 
 ### Hard rules
@@ -30,6 +38,7 @@ Figma's API rate limit is severe and recovery is measured in **hours**. Treat ev
 
    Check the repository before exporting — the asset is often already committed.
 7. **`figma-reader me` costs a call too.** Run it only when diagnosing an auth failure, never as a routine preflight.
+8. **On a cache hit, tell the user how old the data is, before you implement from it.** Every `inspect` response carries `_cache`; when `hit` is `true`, read `ageSeconds` and say so in your own words ("this design data was fetched 3 days ago"). There is no expiry, so a hit can be arbitrarily stale and the CLI will not warn you beyond that field. If the age is large enough that the design plausibly changed, **ask the user** whether it has — do not spend a call to find out. Use `--refresh` only when you or the user already know the design changed; it is a full-price request, so using it "just to be sure" is exactly the careless spending hard rule 1 exists to prevent.
 
 ## Quick start
 
@@ -77,6 +86,7 @@ figma-reader inspect "<figma-url>"            # raw Figma API response
 figma-reader inspect "<figma-url>" --depth 3  # limit tree depth (structure overview only — see caveats below)
 figma-reader inspect "<figma-url>" --geometry # raw vector path data (cannot be combined with --styles)
 figma-reader inspect "<figma-url>" --pretty   # human-readable (cannot be combined with --styles)
+figma-reader inspect "<figma-url>" --refresh  # bypass the cache and spend a call (see hard rule 8)
 ```
 
 #### Fetching several nodes in one call
@@ -104,6 +114,8 @@ When you do use `--geometry`, scope it down in two steps: first run `--styles` o
 **When implementing UI from a design, always use `--styles`.** It removes noise fields (`blendMode`, `constraints`, `scrollBehavior`, `absoluteRenderBounds`, etc.) and keeps everything needed to reproduce styles: `fills`, `strokes`, `strokeWeight`, `cornerRadius`, `effects`, `opacity`, Auto Layout properties, text styles, and `boundVariables`.
 
 **Save the output to a file, then read it selectively with `jq`.** Piping large JSON directly into your context risks silent truncation (tool output limits) — styles of later/deeper nodes get cut off without warning. Save to your session's temporary working directory (scratchpad; use `mktemp -d` if none). Do not use a fixed path like `/tmp/design.json` — fixed names get silently overwritten across sessions and you may read stale data. Include the node id in the filename.
+
+This is about *your* `jq` scratch file, not about re-fetching. Re-running `inspect` on the same node is free (cache hit), so re-run it rather than reaching for a file some earlier session left behind. Staleness of the design data itself is now reported by the CLI in `_cache` — see hard rule 8.
 
 ```bash
 # 0. Working directory: prefer your session's scratchpad; fall back to mktemp
@@ -159,6 +171,13 @@ All commands output JSON by default (machine-readable). Use `--pretty` only when
 
 ```json
 {
+  "_cache": {
+    "hit": true,
+    "cached": true,
+    "fetchedAt": "2026-03-01T12:00:00Z",
+    "ageSeconds": 93600,
+    "note": "Served from local cache fetched 26h ago; ..."
+  },
   "name": "My Design File",
   "lastModified": "2026-03-01T12:00:00Z",
   "editorType": "figma",
@@ -185,6 +204,12 @@ All commands output JSON by default (machine-readable). Use `--pretty` only when
   }
 }
 ```
+
+**`_cache` is present on every response**, whether the data came from the API or from disk. `hit` says which; `ageSeconds` is how old the data is; `cached` says whether the response is on disk now; `note` restates it all in prose. **When `cached` is `false`, repeating the request costs another call** — the response could not be stored, either because the write failed or because some requested id did not resolve. Report the age to the user on a hit — see hard rule 8.
+
+**`lastModified` is the value as of `fetchedAt`, not the current state of the Figma file.** On a cache hit it is frozen at whatever it was when the data was fetched, so comparing it across runs will never tell you the design changed. It is not a freshness check.
+
+Cache files live in `~/.cache/figma-reader/` (or `$XDG_CACHE_HOME/figma-reader/` when that variable holds an absolute path). Deleting the directory is safe; the next call just fetches again. Do not delete it to "get fresh data" — that throws away every file's cache to refresh one, and `--refresh` does that for a single request.
 
 See [references/inspect-output.md](references/inspect-output.md) for detailed field descriptions and the style checklist.
 
@@ -277,6 +302,14 @@ Rate-limited responses (429/503) **may** include a `retryAfter` field:
 ```
 
 **`retryAfter` is in seconds**, and observed values run from 27,000 (~7.5 h) to 96,000 (~26 h). This is not a transient you can sleep through. See [Cost model](#cost-model--read-this-before-your-first-call).
+
+**A failed `--refresh` may report that usable cached data exists**, via an optional `hint` field:
+
+```json
+{ "success": false, "error": "...", "hint": "A cached response for this request is available. Re-run without --refresh to use it." }
+```
+
+When `hint` is present, re-run the same command **without** `--refresh` instead of stopping. You get the previously cached data and spend nothing. The data is stale by definition — say so to the user — but it is far better than losing a day to the lock. The field is absent when there is no cache to fall back to.
 
 **The field is optional — do not assume it is there.** It is emitted only when Figma sends a purely numeric `Retry-After` header; when the header is absent or uses the HTTP-date form, the field is omitted entirely. If it is missing, say so plainly ("rate limited, duration unknown"). The 27,000–96,000 range above is an observation, not a contract — **never quote it to the user as the remaining lock time** when no `retryAfter` came back.
 

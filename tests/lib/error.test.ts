@@ -83,6 +83,36 @@ describe("outputError", () => {
     spy.mockRestore();
   });
 
+  it("hint を渡すと JSON に hint フィールドを足す", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    outputError(false, { type: "CUSTOM_ERROR", message: "失敗" }, "再実行してください");
+
+    expect(spy).toHaveBeenCalledWith(
+      JSON.stringify({ success: false, error: "失敗", hint: "再実行してください" }),
+    );
+    spy.mockRestore();
+  });
+
+  it("hint を渡さなければ hint フィールドを含めない", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    outputError(false, { type: "CUSTOM_ERROR", message: "失敗" });
+
+    expect(JSON.parse(spy.mock.calls[0][0] as string)).not.toHaveProperty("hint");
+    spy.mockRestore();
+  });
+
+  it("pretty モードでは hint をメッセージの後に出力する", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    outputError(true, { type: "CUSTOM_ERROR", message: "失敗" }, "再実行してください");
+
+    expect(spy).toHaveBeenNthCalledWith(1, "失敗");
+    expect(spy).toHaveBeenNthCalledWith(2, "再実行してください");
+    spy.mockRestore();
+  });
+
   it("pretty モードでは人間向けテキストを出力する", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const error: AppError = {

@@ -3,7 +3,7 @@ import { type CacheMeta, formatAge, STALE_WARNING_SECONDS } from "../../lib/cach
 import { resolveToken } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
-import { parseFigmaUrl } from "../../lib/figma-url.js";
+import { parseFigmaUrls } from "../../lib/figma-url.js";
 import { filterStylesResponse } from "./filter-styles.js";
 import { checkStylesConflict, getNodesWithCache, hasCachedNodes, parseDepth } from "./inspect.js";
 
@@ -16,7 +16,10 @@ export default defineCommand({
     url: {
       type: "positional",
       required: true,
-      description: 'Figma node URL (wrap in quotes e.g. "https://...")',
+      // citty は可変長 positional を表現できず --help は <URL> を 1 個しか出さないため、
+      // 複数渡せることを伝えられるのはこの説明文だけ
+      description:
+        'Figma node URL(s), each wrapped in quotes e.g. "https://..." "https://...". Several URLs of the same file are fetched in one request',
     },
     pretty: {
       type: "boolean",
@@ -61,7 +64,8 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const urlResult = parseFigmaUrl(args.url);
+    // args._ が URL 列そのもの。args.url と混ぜてはならない（理由は parseFigmaUrls の JSDoc）
+    const urlResult = parseFigmaUrls(args._);
     if (urlResult.isErr()) {
       outputError(args.pretty, urlResult.error);
       return process.exit(1);
@@ -73,7 +77,8 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const { fileKey, nodeId } = urlResult.value;
+    const { fileKey, nodeIds } = urlResult.value;
+    const nodeId = nodeIds.join(",");
 
     const depthResult = parseDepth(args.depth);
     if (depthResult.isErr()) {
@@ -128,6 +133,12 @@ export default defineCommand({
       console.log(
         JSON.stringify({
           _cache: meta,
+          // 要求した node-id をエコーする。Figma は解決できない id を null で返すことも
+          // キーごと落とすこともあり、後者だと nodes を見るだけでは欠落に気づけない。
+          // 複数ノードをまとめて取るほど部分欠落が黙って通る確率が上がる。
+          // 値は normalizeRequest 済み（重複除去・辞書順ソート）なので引数の順とは対応しない。
+          // nodes のキーとの集合比較に使うものであって、URL との位置対応には使えない
+          _request: { nodeIds: request.nodeIds },
           ...(args.styles ? filterStylesResponse(response) : response),
         }),
       );

@@ -7,6 +7,7 @@ export type AppError =
   | { type: "UNAUTHENTICATED" }
   | { type: "TOKEN_NOT_FOUND"; message: string }
   | { type: "INVALID_URL"; message: string }
+  | { type: "MULTIPLE_FILE_KEYS"; groups: { fileKey: string; urls: string[] }[] }
   | { type: "CUSTOM_ERROR"; message: string };
 
 /** AppError から人間向けのメッセージを生成する */
@@ -36,6 +37,10 @@ export function formatError(error: AppError): string {
       return error.message;
     case "INVALID_URL":
       return `Invalid Figma URL: ${error.message}`;
+    // URL は列挙しない。10 本渡されたときに error が数百文字になり、ログと
+    // エージェントのコンテキストを圧迫する。内訳は groups（pretty では追加行）に置く
+    case "MULTIPLE_FILE_KEYS":
+      return `The given URLs span ${error.groups.length} different Figma files; one request can cover only one file. No API call was made, so no rate limit budget was spent. Re-run once per file — the breakdown of which URL belongs to which file accompanies this error (the 'groups' field in JSON output)`;
     case "CUSTOM_ERROR":
       return error.message;
   }
@@ -53,6 +58,12 @@ export function outputError(pretty: boolean, error: AppError, hint?: string): vo
     if (error.type === "API_ERROR" && error.retryAfter !== undefined) {
       console.error(`Retry after ${error.retryAfter} seconds`);
     }
+    // pretty では JSON の追加フィールドが読めないため、内訳を行として展開する
+    if (error.type === "MULTIPLE_FILE_KEYS") {
+      for (const group of error.groups) {
+        console.error(`  ${group.fileKey}: ${group.urls.join(", ")}`);
+      }
+    }
     if (hint !== undefined) {
       console.error(hint);
     }
@@ -62,6 +73,7 @@ export function outputError(pretty: boolean, error: AppError, hint?: string): vo
       error: message,
       ...(error.type === "API_ERROR" &&
         error.retryAfter !== undefined && { retryAfter: error.retryAfter }),
+      ...(error.type === "MULTIPLE_FILE_KEYS" && { groups: error.groups }),
       ...(hint !== undefined && { hint }),
     };
     console.error(JSON.stringify(json));

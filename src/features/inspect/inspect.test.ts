@@ -95,6 +95,24 @@ describe("getNodes", () => {
     });
   });
 
+  // 複数 URL 対応の要。ノードごとに呼ぶとレートリミットをその数だけ消費するため、
+  // 結合した node-id が 1 リクエストにまとまることを固定する
+  it("複数ノードを 1 回のリクエストにまとめる", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(JSON.stringify({ nodes: {} }), { status: 200 }));
+
+    await getNodes({
+      fileKey: "ABC123",
+      nodeId: "1:2,10:99",
+      token: "test-token",
+    });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(decodeURIComponent(calledUrl)).toContain("ids=1:2,10:99");
+  });
+
   it("depth パラメータを付与する", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ nodes: {} }), { status: 200 }),

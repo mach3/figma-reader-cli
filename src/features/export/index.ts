@@ -1,8 +1,9 @@
 import { defineCommand } from "citty";
 import { resolveToken } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
-import { parseFigmaUrl } from "../../lib/figma-url.js";
+import { parseFigmaUrls } from "../../lib/figma-url.js";
 import {
+  alignImagesToRequest,
   collectNodeIds,
   type DownloadSummary,
   downloadImages,
@@ -20,7 +21,10 @@ export default defineCommand({
     url: {
       type: "positional",
       required: true,
-      description: 'Figma node URL (wrap in quotes e.g. "https://...")',
+      // citty は可変長 positional を表現できず --help は <URL> を 1 個しか出さないため、
+      // 複数渡せることを伝えられるのはこの説明文だけ
+      description:
+        'Figma node URL(s), each wrapped in quotes e.g. "https://..." "https://...". Several URLs of the same file are exported in one request',
     },
     ids: {
       type: "string",
@@ -58,7 +62,8 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const urlResult = parseFigmaUrl(args.url);
+    // args._ が URL 列そのもの。args.url と混ぜてはならない（理由は parseFigmaUrls の JSDoc）
+    const urlResult = parseFigmaUrls(args._);
     if (urlResult.isErr()) {
       outputError(args.pretty, urlResult.error);
       return process.exit(1);
@@ -83,9 +88,9 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const { fileKey, nodeId } = urlResult.value;
+    const { fileKey, nodeIds } = urlResult.value;
 
-    const nodeIdsResult = collectNodeIds(nodeId, args.ids);
+    const nodeIdsResult = collectNodeIds(nodeIds, args.ids);
     if (nodeIdsResult.isErr()) {
       outputError(args.pretty, nodeIdsResult.error);
       return process.exit(1);
@@ -104,7 +109,9 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const { images } = imagesResult.value;
+    // 欠落キーを null に揃えてから下流へ渡す。これを挟まないと、Figma が返さなかった
+    // ノードが失敗として数えられず、要求より少ないファイルを書いて exit 0 になる
+    const images = alignImagesToRequest(imagesResult.value.images, nodeIdsResult.value);
 
     // ダウンロードモード
     if (args.download) {

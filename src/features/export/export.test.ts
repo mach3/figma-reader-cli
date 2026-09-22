@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseFigmaUrls } from "../../lib/figma-url.js";
 import {
+  alignImagesToRequest,
   collectNodeIds,
   downloadImages,
   getImages,
@@ -47,22 +49,38 @@ describe("parseScale", () => {
 
 describe("collectNodeIds", () => {
   it("URL の nodeId だけを返す", () => {
-    expect(collectNodeIds("1:2", undefined)._unsafeUnwrap()).toEqual(["1:2"]);
+    expect(collectNodeIds(["1:2"], undefined)._unsafeUnwrap()).toEqual(["1:2"]);
+  });
+
+  it("複数 URL の nodeId を入力順のまま返す", () => {
+    expect(collectNodeIds(["1:2", "10:99"], undefined)._unsafeUnwrap()).toEqual(["1:2", "10:99"]);
   });
 
   it("--ids を URL の nodeId の後ろに連結する", () => {
-    expect(collectNodeIds("1:2", "4:56,7:89")._unsafeUnwrap()).toEqual(["1:2", "4:56", "7:89"]);
+    expect(collectNodeIds(["1:2"], "4:56,7:89")._unsafeUnwrap()).toEqual(["1:2", "4:56", "7:89"]);
+  });
+
+  it("複数 URL の nodeId と --ids を連結する", () => {
+    expect(collectNodeIds(["1:2", "10:99"], "4:56")._unsafeUnwrap()).toEqual([
+      "1:2",
+      "10:99",
+      "4:56",
+    ]);
   });
 
   it("--ids の各要素をトリムする", () => {
-    expect(collectNodeIds("1:2", " 4:56 , 7:89 ")._unsafeUnwrap()).toEqual(["1:2", "4:56", "7:89"]);
+    expect(collectNodeIds(["1:2"], " 4:56 , 7:89 ")._unsafeUnwrap()).toEqual([
+      "1:2",
+      "4:56",
+      "7:89",
+    ]);
   });
 
   // 空要素は「取得できなかった値が join された」可能性があるため、黙って捨てずにエラーにする
   it.each(["4:56,", ",4:56", "4:56,,7:89", ",,", " "])(
     "--ids が %o なら空要素としてエラーを返す",
     (ids) => {
-      expect(collectNodeIds("1:2", ids)._unsafeUnwrapErr()).toEqual({
+      expect(collectNodeIds(["1:2"], ids)._unsafeUnwrapErr()).toEqual({
         type: "CUSTOM_ERROR",
         message: "--ids contains an empty node ID",
       });
@@ -260,5 +278,73 @@ describe("downloadImages", () => {
       expect(result.value.failures).toHaveLength(1);
       expect(result.value.failures[0].reason).toBe("Error occurred during download");
     }
+  });
+});
+
+describe("alignImagesToRequest", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Figma がキーごと落としたノードは downloadImages の走査対象から外れ、
+  // 成功にも失敗にも数えられないまま exit 0 になる。null へ正規化して既存の失敗経路に載せる
+  it("レスポンスに無い node-id を null で補う", () => {
+    const aligned = alignImagesToRequest({ "1:2": "https://img/1-2.svg" }, ["1:2", "10:99"]);
+
+    expect(aligned).toEqual({ "1:2": "https://img/1-2.svg", "10:99": null });
+  });
+
+  it("既にある値を上書きしない", () => {
+    const aligned = alignImagesToRequest({ "1:2": "https://img/1-2.svg", "10:99": null }, [
+      "1:2",
+      "10:99",
+    ]);
+
+    expect(aligned).toEqual({ "1:2": "https://img/1-2.svg", "10:99": null });
+  });
+
+  // 要求していない id が返ってきても捨てない。取得できたデータを黙って失うほうが害が大きい
+  it("要求していない id がレスポンスにあっても残す", () => {
+    const aligned = alignImagesToRequest({ "1:2": "https://img/1-2.svg", "9:9": "https://img/9" }, [
+      "1:2",
+    ]);
+
+    expect(aligned["9:9"]).toBe("https://img/9");
+  });
+
+  it("欠落がなければレスポンスと同じ内容を返す", () => {
+    const images = { "1:2": "https://img/1-2.svg" };
+
+    expect(alignImagesToRequest(images, ["1:2"])).toEqual(images);
+  });
+
+  // 補完した null が downloadImages の failures に載り、exit 1 の判定材料になることまで通す
+  it("補完した null が failures として報告される", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array([0x3c, 0x73, 0x76, 0x67]), { status: 200 }),
+    );
+    const aligned = alignImagesToRequest({ "1:2": "https://img/1-2.svg" }, ["1:2", "10:99"]);
+
+    const summary = (await downloadImages(aligned, "svg", "/tmp/out"))._unsafeUnwrap();
+
+    expect(summary.failures).toEqual([{ nodeId: "10:99", reason: "Failed to get image URL" }]);
+    expect(summary.successes.map((s) => s.nodeId)).toEqual(["1:2"]);
+  });
+});
+
+describe("カンマ区切り node-id の URL（回帰）", () => {
+  // parseFigmaUrls が合成文字列 "1:2,10:99" を 1 要素で返していた頃、
+  // alignImagesToRequest がそれをレスポンスのキーと照合できず幻の null を足し、
+  // 両ノードとも取得できているのに failures 1 件・exit 1 になっていた
+  it("両ノードが返っていれば欠落を捏造しない", () => {
+    const requested = collectNodeIds(
+      parseFigmaUrls(["https://www.figma.com/design/ABC/F?node-id=1-2,10-99"])._unsafeUnwrap()
+        .nodeIds,
+      undefined,
+    )._unsafeUnwrap();
+    const response = { "1:2": "https://img/a", "10:99": "https://img/b" };
+
+    expect(requested).toEqual(["1:2", "10:99"]);
+    expect(alignImagesToRequest(response, requested)).toEqual(response);
   });
 });

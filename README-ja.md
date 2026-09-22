@@ -78,11 +78,22 @@ figma-reader me --pretty
 
 ### `inspect` - デザインコンテキストの取得
 
-Figma ノード URL からデザイン情報（ノードツリー・スタイル・コンポーネント）を取得します。
+1 つ以上の Figma ノード URL からデザイン情報（ノードツリー・スタイル・コンポーネント）を取得します。
 
 ```bash
 figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
+
+# 同一ファイルの複数ノードを 1 回の API リクエストで取得する（URL は 1 本ずつクォートする）
+figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "https://www.figma.com/design/XXXXX/FileName?node-id=10-99"
 ```
+
+すべての URL は同一ファイルに属している必要があります。Figma のリクエストは 1 回につき 1 ファイルしか扱えないため、複数ファイルが混在する場合は **API を呼ぶ前に** エラー終了し、どの URL がどの file key に属するかを出力します:
+
+```json
+{ "success": false, "error": "The given URLs span 2 different Figma files; ...", "groups": [{ "fileKey": "ABC123", "urls": ["https://..."] }, { "fileKey": "XYZ789", "urls": ["https://..."] }] }
+```
+
+URL の `node-id` はカンマ区切りのリスト（`?node-id=1-2,10-99`）も受け付けます。これは同じノードを別々の URL として渡すのと同等です。
 
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|
@@ -90,6 +101,27 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 | `--styles` | スタイル特化の JSON 出力。ノイズフィールドを除去し fills / strokes / effects / レイアウト / テキストスタイルを保持。`--pretty` / `--geometry` とは併用不可 | `false` |
 | `--depth <N>` | ノードツリーの深さを制限（正の整数） | 制限なし |
 | `--geometry` | ベクターデータ（パス情報）を含める | `false` |
+| `--refresh` | ローカルキャッシュを使わず Figma API から取得する | `false` |
+
+#### キャッシュ
+
+Figma API のレートリミットは回復までに数時間かかるため、`inspect` のレスポンスはディスクにキャッシュされ、セッションをまたいで再利用されます。キャッシュにヒットするのは file key・ノード ID・`--depth`・`--geometry` のすべてが前回の呼び出しと一致する場合だけで、どれか一つでも違えば 1 リクエストを消費します。有効期限はないため、デザインが変わったと分かっているときに `--refresh` を指定してください。
+
+すべてのレスポンスには、キャッシュ由来かどうかとその古さを示す `_cache` オブジェクトが含まれます:
+
+```json
+{ "_cache": { "hit": true, "cached": true, "fetchedAt": "2026-09-19T04:00:00.000Z", "ageSeconds": 93600, "note": "Served from local cache ..." } }
+```
+
+`lastModified` は `fetchedAt` の時点でのファイルの状態を反映したものであり、Figma ファイルの現在の状態ではない点に注意してください。
+
+`inspect` の JSON レスポンスにはさらに `_request.nodeIds`（リクエストが要求したノード ID）が含まれます。重複除去とソートが施されているため、渡した URL と位置で対応するわけではありません。これは `inspect` 固有のフィールドで、`export` は自身の出力で部分的な欠落を報告します。Figma は解決できない ID を `null` で返すこと**も**、キーごと落とすこともあるため、部分的にしか満たされなかったリクエストを検出するには、このリストを `nodes` の**実際に解決したエントリ**と（単にキーとではなく）突き合わせるしかありません:
+
+```json
+{ "_request": { "nodeIds": ["10:99", "1:2"] } }
+```
+
+キャッシュファイルは `~/.cache/figma-reader/`（`$XDG_CACHE_HOME` が絶対パスの場合は `$XDG_CACHE_HOME/figma-reader/`）に置かれます。他の機能はこれに依存していないため、ディレクトリはいつ削除しても構いません。次回の呼び出しで再取得されるだけです。
 
 ### `export` - 画像エクスポート
 
@@ -104,7 +136,14 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 
 # スケール指定・出力先指定
 figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --scale 2 --download --output ./images
+
+# 同一ファイルの複数ノードを 1 回の API リクエストで処理する（URL は 1 本ずつクォートする）
+figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "https://www.figma.com/design/XXXXX/FileName?node-id=10-99" --format svg --download
 ```
+
+`inspect` と同様に、`export` も複数の URL を受け取り、それらが同一ファイルに属していることを要求します。URL 自身のノード ID は `--ids` で渡したものと合わせてエクスポートされます。
+
+**要求したノード ID は必ずすべて出力に現れます。** Figma がレンダリングできなかったノードは、URL 出力モードでは `null` として報告され、`--download` モードでは `failures` に載ってコマンドが exit 1 します。要求したノード数よりファイルが少ないのに成功に見える、という状態にはなりません。
 
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|

@@ -80,11 +80,22 @@ figma-reader me --pretty
 
 ### `inspect` - Get design context
 
-Retrieve design information (node tree, styles, components) from a Figma node URL.
+Retrieve design information (node tree, styles, components) from one or more Figma node URLs.
 
 ```bash
 figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
+
+# Several nodes of the same file in a single API request — quote each URL separately
+figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "https://www.figma.com/design/XXXXX/FileName?node-id=10-99"
 ```
+
+All URLs must belong to the same file. A Figma request can address only one file, so a mixed set exits with an error **before** any API call and reports which URL belongs to which file key:
+
+```json
+{ "success": false, "error": "The given URLs span 2 different Figma files; ...", "groups": [{ "fileKey": "ABC123", "urls": ["https://..."] }, { "fileKey": "XYZ789", "urls": ["https://..."] }] }
+```
+
+A URL's `node-id` also accepts a comma-separated list (`?node-id=1-2,10-99`), which is equivalent to passing those nodes as separate URLs.
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -106,6 +117,12 @@ Every response carries a `_cache` object reporting whether it came from the cach
 
 Note that `lastModified` reflects the file as of `fetchedAt`, not the current state of the Figma file.
 
+Every `inspect` JSON response also carries `_request.nodeIds`, the node ids the request asked for (de-duplicated and sorted, so it does not line up positionally with the URLs you passed). It is specific to `inspect`; `export` reports partial misses through its own output instead. Figma returns an unresolvable id as `null` **or** omits its key entirely, so comparing this list against the `nodes` entries that actually resolved — not merely against its keys — is the only way to detect a partially fulfilled request:
+
+```json
+{ "_request": { "nodeIds": ["10:99", "1:2"] } }
+```
+
 Cache files live in `~/.cache/figma-reader/` (or `$XDG_CACHE_HOME/figma-reader/` when that variable holds an absolute path). Nothing else depends on them, so the directory can be deleted at any time; the next call simply fetches again.
 
 ### `export` - Export images
@@ -121,7 +138,14 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --
 
 # With scale and output directory
 figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --scale 2 --download --output ./images
+
+# Several nodes of the same file in a single API request — quote each URL separately
+figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "https://www.figma.com/design/XXXXX/FileName?node-id=10-99" --format svg --download
 ```
+
+Like `inspect`, `export` accepts several URLs and requires them to belong to the same file. The URLs' own node ids are exported alongside anything passed to `--ids`.
+
+**Every requested node id always appears in the output.** A node Figma could not render is reported as `null` in URL mode, and in `--download` mode it lands in `failures` and the command exits 1 — so a request that produced fewer files than nodes can never look like a success.
 
 | Option | Description | Default |
 |--------|-------------|---------|

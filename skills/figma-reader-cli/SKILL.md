@@ -18,7 +18,9 @@ Figma's API rate limit is severe and recovery is measured in **hours**. Treat ev
 
 - `node-id=1-2` then `node-id=1-2,10-99` are **two different requests**. The escalation in hard rule 4 always costs a second call — that is expected, not a failure to plan.
 - Adding or removing `--depth` is a different request. `--styles` and `--pretty` are not (they only reshape output you already paid for).
-- A response in which any requested id did not resolve (it came back `null`, or was missing entirely) is **never cached**, so that exact combination costs a call every time until the id resolves. `_cache.cached` is `false` in that case.
+- A response in which any requested id did not resolve (it came back `null`, or was missing entirely) is **never cached**, so that exact combination costs a call every time until the id resolves. `_cache.cached` is `false` in that case. **This applies to the whole batch**: one dead id among five nodes means none of the five are stored, and the next run pays for all of them again. When a URL in your input is stale or points at something you lack access to, drop it rather than carrying it along for completeness.
+
+**Batching and the cache pull in opposite directions — batch anyway, but know the trade.** Because the key is the *set* of ids, `inspect A B` and a later `inspect A` are different requests, and mixing an already-cached URL with a new one does not reuse the cached half. Batching still wins: it is one call where per-URL fetching is N, and N is what exhausts the budget. The rule is to decide the whole set **before** the first call (hard rule 3) so you request it once, not to split a set in the hope of a partial hit.
 
 This changes nothing about hard rules 3 and 5: plan the whole fetch before the first call, and never spend one on speculation. The cache rewards repeating a call you already made; it does nothing for the exploratory call you were about to invent.
 
@@ -27,9 +29,9 @@ This changes nothing about hard rules 3 and 5: plan the whole fetch before the f
 ### Hard rules
 
 1. **On 429, do not retry and do not wait.** Stop, report to the user, and ask them to export from the Figma app (browser/desktop) — that path does not touch the API budget. See [Error handling](#error-handling).
-2. **One `inspect` and one `export` per screen.** Inspect the common ancestor (`--styles` brings every descendant along), and batch every vector into a single `export --ids "a,b,c"`. **Never call `export` once per node** — cost is per request, not per node, so ten icons cost the same as one.
+2. **One `inspect` and one `export` per file — not per screen, not per URL.** Group everything you need from a single Figma file into a single call of each. Pass the URLs together (`figma-reader inspect "URL1" "URL2"`), inspect the common ancestor when the nodes share one (`--styles` brings every descendant along), and batch every vector into a single `export --ids "a,b,c"` or `export "URL1" "URL2"`. **Never call either once per node or once per URL** — cost is per request, not per node, so ten icons cost the same as one. The *only* sanctioned second `inspect` on the same file is the `componentSets` escalation in hard rule 4; anything else is a planning failure. Different files cannot share a request, so each additional file costs a full call — see [Preflight](#preflight-before-your-first-inspect).
 3. **Plan the whole fetch before the first call.** List every node you need — structure *and* every vector you will have to export — then spend the two calls. Discovering afterwards that one more icon is missing can cost a day.
-4. **Read `components` and `componentSets`, not just `document`.** They are siblings of `document` in the same response and they tell you *what else you need to fetch*. An instance whose component is named `state=default` / `size=lg` is one variant of a set — the other states (hover, disabled, empty) live in the component set named by `componentSetId`, which is a **different node your screen fetch did not include**. Screens only ever carry the variant they render. You cannot know this before call 1 — `componentSetId` only exists in call 1's response — so the rule is: **read `componentSets` in the response you just got, and if it names a set you need, re-request with both node ids in one call** (comma-separated `node-id`, see [Fetching several nodes in one call](#fetching-several-nodes-in-one-call)). That keeps you at one `inspect`. A missed variant is not caught by lint, types, or a build: the screen looks right and the hover state is silently wrong, so it typically surfaces long after the budget is gone.
+4. **Read `components` and `componentSets`, not just `document`.** They are siblings of `document` in the same response and they tell you *what else you need to fetch*. An instance whose component is named `state=default` / `size=lg` is one variant of a set — the other states (hover, disabled, empty) live in the component set named by `componentSetId`, which is a **different node your screen fetch did not include**. Screens only ever carry the variant they render. You cannot know this before call 1 — `componentSetId` only exists in call 1's response — so the rule is: **read `componentSets` in the response you just got, and if it names a set you need, re-request with both node ids in one call** (comma-separated `node-id`, see [Fetching several nodes in one call](#fetching-several-nodes-in-one-call)). This is the one escalation hard rule 2 permits, and it is expected to cost a second call — that is planned spending, not a failure. A missed variant is not caught by lint, types, or a build: the screen looks right and the hover state is silently wrong, so it typically surfaces long after the budget is gone.
 5. **Never spend a call on speculation.** Do not fetch a page to check whether some frame (an OGP image, a desktop variant) exists. Ask the user.
 6. **Classify each shape's origin before fetching it.** The node name usually gives it away:
    - `lucide/chevron-right`, `mdi/...` → an icon library. Install the package instead; 0 calls.
@@ -39,6 +41,22 @@ This changes nothing about hard rules 3 and 5: plan the whole fetch before the f
    Check the repository before exporting — the asset is often already committed.
 7. **`figma-reader me` costs a call too.** Run it only when diagnosing an auth failure, never as a routine preflight.
 8. **On a cache hit, tell the user how old the data is, before you implement from it.** Every `inspect` response carries `_cache`; when `hit` is `true`, read `ageSeconds` and say so in your own words ("this design data was fetched 3 days ago"). There is no expiry, so a hit can be arbitrarily stale and the CLI will not warn you beyond that field. If the age is large enough that the design plausibly changed, **ask the user** whether it has — do not spend a call to find out. Use `--refresh` only when you or the user already know the design changed; it is a full-price request, so using it "just to be sure" is exactly the careless spending hard rule 1 exists to prevent.
+
+### Preflight before your first `inspect`
+
+Do this before the first call, every time. It is three steps and costs nothing.
+
+1. **List every Figma URL in your input** — the user's message, the issue, the linked document, the spec. All of them, not just the one you were about to fetch. URLs arriving later in a long document are the usual cause of a per-URL fetch loop.
+2. **Group them by file key.** The file key is the segment after `/design/` — in `https://www.figma.com/design/ABC123/Name?node-id=1-2` it is `ABC123`. For a branch URL (`/design/ABC123/branch/BRANCH456/Name`) the *branch* key is what the API addresses, so a branch URL and a plain URL of the same design are **different files** to this CLI.
+3. **One call per group.** Pass a group's URLs to a single `inspect`, each quoted separately:
+
+```bash
+figma-reader inspect "https://www.figma.com/design/ABC123/File?node-id=1-2" "https://www.figma.com/design/ABC123/File?node-id=10-99" --styles
+```
+
+Quote each URL individually. The URLs Figma's "Copy link to selection" produces contain `&t=...`; an unquoted one is split by the shell and the rest of the command is silently lost.
+
+**If the URLs span more than one file, stop and think before spending.** The CLI refuses the call (see [Error handling](#error-handling)) precisely so that this decision is yours rather than a silent multiplication of cost. Each file is a full-price call, and the observed budget is roughly two calls — so three files is already over. Ask the user which files the task actually needs instead of fetching all of them.
 
 ## Quick start
 
@@ -87,25 +105,40 @@ figma-reader inspect "<figma-url>" --depth 3  # limit tree depth (structure over
 figma-reader inspect "<figma-url>" --geometry # raw vector path data (cannot be combined with --styles)
 figma-reader inspect "<figma-url>" --pretty   # human-readable (cannot be combined with --styles)
 figma-reader inspect "<figma-url>" --refresh  # bypass the cache and spend a call (see hard rule 8)
+
+# several URLs of the same file, in ONE request — quote each one separately
+figma-reader inspect "<figma-url-1>" "<figma-url-2>" --styles
 ```
 
 #### Fetching several nodes in one call
 
-`inspect` has no `--ids` flag, but it does not need one: **the URL's `node-id` accepts a comma-separated list, and every id is resolved in a single request.** The rate limit charges per request, so two nodes cost exactly what one costs.
+**One request can carry as many nodes as you need, as long as they live in the same file.** The rate limit charges per request, so two nodes cost exactly what one costs. There are two ways to express this, and which one to use depends on what you are holding:
+
+**You already have several URLs → pass them all.** This is the common case: the user's message or an issue lists a few frames. Do not extract the ids and rebuild a URL — just hand them over, each quoted separately.
+
+```bash
+figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1-2" "https://www.figma.com/design/XXXXX/File?node-id=10-99" --styles
+```
+
+**You have one URL and a bare node id → add it with a comma.** The URL's `node-id` accepts a comma-separated list. This is the form to use for the hard rule 4 escalation, where the second id came out of a response rather than from the user.
 
 ```bash
 # One request, two nodes: a screen and the component set its instances point at
 figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1-2,10-99" --styles
 ```
 
-Use the same `-` form the Figma UI puts in the URL (`10-99`); it is converted to `10:99` for the API. The response's `nodes` object comes back keyed by every id you asked for:
+Use the same `-` form the Figma UI puts in the URL (`10-99`); it is converted to `10:99` for the API. Both forms produce the same request. `export` accepts the same two forms, with `--ids` in place of the comma-separated `node-id`.
+
+The response's `nodes` object comes back keyed by every id you asked for:
 
 ```json
 { "nodes": { "1:2":   { "document": { "type": "FRAME", ... } },
              "10:99": { "document": { "type": "COMPONENT_SET", ... } } } }
 ```
 
-This is the way to satisfy hard rule 4 without spending a second call: when call 1's `componentSets` reveals a set you need, re-request the screen **and** the set together. An id the token cannot resolve comes back as `null` rather than failing the whole request, so check for nulls before reading (see the `jq` recipes below).
+An id the token cannot resolve comes back as `null` rather than failing the whole request — and sometimes its key is missing entirely. **Check what you asked for against what came back**: the response echoes your request in `_request.nodeIds`, so compare that list with the `nodes` entries that actually resolved before reading (see the `jq` recipes below). **Comparing against the keys alone is not enough** — an unresolved id is usually present as a key with a `null` value, so a key-only diff reports "nothing missing" for exactly the case you are looking for. It is a de-duplicated, sorted *set* — do not pair it positionally with the URLs you passed. The more nodes you batch, the more a silent partial miss looks like a success.
+
+**All the URLs must belong to one file.** If they do not, the CLI refuses before spending anything — see [Preflight](#preflight-before-your-first-inspect) and [Error handling](#error-handling).
 
 **When you need vector shapes, `export --format svg` is almost always the right tool, not `--geometry`.** Export returns a finished SVG (boolean operations resolved, transforms applied, usable as a file). `--geometry` returns raw path coordinates (`fillGeometry` / `strokeGeometry`) that you must interpret yourself — use it only when you need path data as code, e.g. generating `clip-path: polygon(...)` values or Canvas drawing commands.
 
@@ -143,12 +176,22 @@ jq '.. | objects | select(.name? == "CardHeader")' "$WORKDIR/design-1-2.json"
 # The normal case: every vector you need, in one request
 figma-reader export "<figma-url>" --ids "1:2,3:4,5:6" --format svg --download --output ./icons
 
+# Several URLs of the same file also go in one request — quote each one separately
+figma-reader export "<figma-url-1>" "<figma-url-2>" --format svg --download --output ./icons
+
 figma-reader export "<figma-url>"                                  # single node, URL mode
 figma-reader export "<figma-url>" --format png --scale 2 --download --output ./assets
 figma-reader export "<figma-url>" --format pdf --download
 ```
 
-The URL's own `node-id` is exported too, so `--ids` only needs the *additional* nodes.
+The URLs' own `node-id`s are exported too, so `--ids` only needs the *additional* nodes. Use whichever form matches what you are holding: URLs you were given go in as URLs, bare ids you pulled out of an `inspect` response go in `--ids`. As with `inspect`, every URL must belong to the same file — a mixed set is refused before the request.
+
+**`export` never drops a requested id silently — but how you check depends on the mode.** Every id you asked for appears in the output either way.
+
+- **`--download`**: a node Figma could not render lands in `failures` and the command **exits 1**. Checking the exit code is enough.
+- **URL mode (no `--download`)**: the node appears in `images` with a `null` value and the command still **exits 0**. You must scan the values yourself — `jq '[.images | to_entries[] | select(.value == null) | .key]'`. An all-`null` response looks like a success to the exit code alone.
+
+(`inspect` differs again: there you diff `_request.nodeIds` against the resolved entries, because a node tree has no per-node success field to put the answer in.)
 
 **Without `--download` the command returns S3 URLs instead of files.** Those URLs are served outside the Figma API, so a URL you already hold can be fetched with `curl` without spending budget. This is not a way around the rate limit — the URL only exists for a node you already exported.
 
@@ -178,6 +221,7 @@ All commands output JSON by default (machine-readable). Use `--pretty` only when
     "ageSeconds": 93600,
     "note": "Served from local cache fetched 26h ago; ..."
   },
+  "_request": { "nodeIds": ["1:2"] },
   "name": "My Design File",
   "lastModified": "2026-03-01T12:00:00Z",
   "editorType": "figma",
@@ -206,6 +250,13 @@ All commands output JSON by default (machine-readable). Use `--pretty` only when
 ```
 
 **`_cache` is present on every response**, whether the data came from the API or from disk. `hit` says which; `ageSeconds` is how old the data is; `cached` says whether the response is on disk now; `note` restates it all in prose. **When `cached` is `false`, repeating the request costs another call** — the response could not be stored, either because the write failed or because some requested id did not resolve. Report the age to the user on a hit — see hard rule 8.
+
+**`_request.nodeIds` echoes what you asked for — diff it against the `nodes` entries that resolved.** An id the token cannot resolve comes back as `null`, and sometimes its key is absent altogether, so a partial miss exits 0 and reads as a success. This is the only way to detect it. Drop the `null`-valued entries before diffing, as the recipe below does; diffing against `.nodes | keys` alone silently misses the `null` case. The field is on the JSON output only; `--pretty` instead prints `Node <id>: not found` for each one.
+
+```bash
+# Ids you asked for that did not come back. Empty array means nothing was lost.
+jq '._request.nodeIds - (.nodes | with_entries(select(.value != null)) | keys)' "$WORKDIR/design-1-2.json"
+```
 
 **`lastModified` is the value as of `fetchedAt`, not the current state of the Figma file.** On a cache hit it is frozen at whatever it was when the data was fetched, so comparing it across runs will never tell you the design changed. It is not a freshness check.
 
@@ -313,6 +364,17 @@ When `hint` is present, re-run the same command **without** `--refresh` instead 
 
 **The field is optional — do not assume it is there.** It is emitted only when Figma sends a purely numeric `Retry-After` header; when the header is absent or uses the HTTP-date form, the field is omitted entirely. If it is missing, say so plainly ("rate limited, duration unknown"). The 27,000–96,000 range above is an observation, not a contract — **never quote it to the user as the remaining lock time** when no `retryAfter` came back.
 
+**URLs from more than one file are refused before the request, with a `groups` breakdown:**
+
+```json
+{ "success": false,
+  "error": "The given URLs span 2 different Figma files; ...",
+  "groups": [ { "fileKey": "ABC123", "urls": ["https://.../ABC123/...?node-id=1-2"] },
+              { "fileKey": "XYZ789", "urls": ["https://.../XYZ789/...?node-id=3-4"] } ] }
+```
+
+**No API call was made, so no budget was spent.** This is not a rate limit and it is not a failure you need to report as a blocker — do not stop work over it. Each entry in `groups` is a ready-to-run invocation: its `urls` are the strings you passed, so you can re-run per file by copying them. But copying all of them is the expensive reflex this error exists to interrupt: each file is a full-price call. Decide which files the task actually needs — ask the user when that is not obvious — and fetch only those.
+
 Common errors and actions:
 - **429 / 503 (rate limited)**: Do **not** retry and do **not** wait — retrying while limited extends the lock (observed 27,000 s → 96,000 s). Stop immediately, report the lock (quoting `retryAfter` only if it is present — see above), and ask the user to supply what is missing from the Figma app (browser/desktop): **Copy/Paste as → Copy as SVG**, or the Export panel. The app does not consume the API budget. Do not substitute hand-written or recalled paths for artwork you failed to fetch — a wrong glyph passes lint, typecheck, and build silently
 - **`A network error occurred`**: The request never reached Figma, so **no budget was spent** — this is not a rate limit and not an auth failure, despite arriving in the same shape. The usual cause is a sandbox or proxy that does not allow the API host: the CLI talks to `api.figma.com`, which is a different host from the `www.figma.com` URLs you were given, so an allowlist built from the design URL will not cover it. Report it as an environment problem and ask the user to allow `api.figma.com`; do not retry in a loop, and do not treat it as a reason to fall back to recalled data
@@ -339,14 +401,20 @@ Common errors and actions:
 Two API calls. A third is a deliberate decision, not a reflex — see the note on the reference shot below.
 
 ```bash
-# 0. Prepare a working directory (use your scratchpad if available). No API call.
+# 0. PREFLIGHT — collect every Figma URL in your input and group them by file key.
+#    Here the user gave two frames of the same file, so they go in one call. No API call.
 WORKDIR=$(mktemp -d)
 
-# 1. CALL 1 — structure and styles for the whole screen, saved to a file
-figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2" --styles > "$WORKDIR/design-1-2.json"
+# 1. CALL 1 — structure and styles for every screen you were given, saved to a file
+figma-reader inspect \
+  "https://www.figma.com/design/XXXXX/File?node-id=1-2" \
+  "https://www.figma.com/design/XXXXX/File?node-id=8-40" \
+  --styles > "$WORKDIR/design-1-2.json"
 
-# 2. Decide everything you need from the saved JSON before spending call 2:
-#    every vector node id you will have to export. No API call.
+# 2. Confirm nothing was silently dropped, then decide everything you need from the
+#    saved JSON before spending call 2: every vector node id you will have to export.
+#    No API call.
+jq '._request.nodeIds - (.nodes | with_entries(select(.value != null)) | keys)' "$WORKDIR/design-1-2.json"
 jq '[.. | objects | select(.type? == "VECTOR" or .type? == "INSTANCE") | {id, name, type}]' "$WORKDIR/design-1-2.json"
 
 # 3. CALL 2 — every vector you need, in one request

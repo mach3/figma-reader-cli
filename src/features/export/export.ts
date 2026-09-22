@@ -31,7 +31,7 @@ export function parseScale(scale: string): Result<number, AppError> {
 }
 
 /**
- * URL の node-id と --ids からエクスポート対象のノード ID を集める。
+ * URL 群の node-id と --ids からエクスポート対象のノード ID を集める。
  *
  * --ids の空要素は黙って捨てずにエラーにする。主な呼び出し元は AI エージェントであり、
  * 空要素は末尾カンマより「配列の要素が undefined のまま join された」＝取得したかった
@@ -40,7 +40,7 @@ export function parseScale(scale: string): Result<number, AppError> {
  * 空要素のまま API に送ると 1 回分のレートリミットを無駄にするため、送る前に落とす
  */
 export function collectNodeIds(
-  nodeId: string,
+  nodeIds: string[],
   ids: string | undefined,
 ): Result<string[], AppError> {
   const extra = ids ? ids.split(",").map((id) => id.trim()) : [];
@@ -48,7 +48,29 @@ export function collectNodeIds(
   if (extra.some((id) => id === "")) {
     return err({ type: "CUSTOM_ERROR", message: "--ids contains an empty node ID" });
   }
-  return ok([nodeId, ...extra]);
+  return ok([...nodeIds, ...extra]);
+}
+
+/**
+ * 要求したすべての node-id が images に現れることを保証する。
+ *
+ * Figma は返せなかったノードを `null` で返すこともキーごと落とすこともある。
+ * 後者をそのまま流すと downloadImages の走査対象（レスポンスのキー）から外れ、
+ * 成功にも失敗にも数えられないまま exit 0 になる ＝ 要求より少ないファイルを
+ * 書いたうえで成功を返してしまう。欠落を `null` に正規化して既存の失敗経路へ合流させる
+ */
+export function alignImagesToRequest(
+  images: Record<string, string | null>,
+  nodeIds: string[],
+): Record<string, string | null> {
+  // レスポンス側を基点にするのは、要求していない id を Figma が返しても捨てないため
+  const aligned = { ...images };
+  for (const nodeId of nodeIds) {
+    if (!(nodeId in aligned)) {
+      aligned[nodeId] = null;
+    }
+  }
+  return aligned;
 }
 
 export type ExportImagesOptions = {

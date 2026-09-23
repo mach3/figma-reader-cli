@@ -11,10 +11,11 @@ With `--styles`, each node keeps only the fields listed below (noise fields like
 Present on every response, including `--styles`:
 
 - **hit**: `true` when the response came from the local cache instead of the Figma API
-- **cached**: `true` when this response is on disk now. Always `true` on a hit. On a miss it is `false` when the response could not be stored (the write failed, or some requested id did not resolve), which means an identical request will spend another call
+- **cached**: `true` when this call's response is stored on disk. Always `true` on a hit. On a miss it is `false` when the response was not stored (the cache is turned off, the write failed, or some requested id did not resolve), which usually means an identical request will spend another call. The exception is when an older cached response could not be removed either (the note says so): that stale file stays on disk, and an identical request without `--refresh` may be served from it. When the cache is turned off it is always `false`, but cache files written before it was turned off are left untouched and may still exist
+- **enabled**: `false` when the cache is turned off with `FIGMA_READER_CACHE=off`. In that case the CLI does not read, write, or delete any cache file, and every call spends a request. Turning the cache off is not a substitute for `--refresh`: once it is turned back on, responses stored before it was turned off can be served again
 - **fetchedAt**: ISO 8601 timestamp of when the data was actually retrieved from Figma
 - **ageSeconds**: how old the data is, in seconds. Always `>= 0`
-- **note**: the same information in prose, so the response explains itself without this reference. On a miss it also states whether the response was actually stored — a response that could **not** be cached (the write failed, or some requested id did not resolve) says `NOT cached`, meaning an identical request will spend another call
+- **note**: the same information in prose, so the response explains itself without this reference. On a miss it also states whether the response was actually stored — a response that could **not** be cached (the cache is turned off, the write failed, or some requested id did not resolve) says `NOT cached`, meaning an identical request will spend another call — unless the note adds that an older cached response could not be removed, in which case that request may return the stale response. When the write itself failed, the note also names the error code (such as `EPERM`), the cache directory, and how to fix it (allow writes to that directory in the sandbox, or set `FIGMA_READER_CACHE_DIR`)
 
 There is no expiry, so a cache hit can be arbitrarily old. Report `ageSeconds` to the user before implementing from a hit.
 

@@ -16,7 +16,7 @@ AI エージェントがサブプロセスとして実行し、正確で必要�
 
 サポート対象プラットフォームは **macOS / Linux** です。Windows はベストエフォートで、動作は妨げませんが正式なサポート対象ではなく、以下の既知の差異は解消しません。
 
-- 設定ファイルとレスポンスキャッシュは `%APPDATA%` / `%LOCALAPPDATA%` ではなく、ホームディレクトリ配下（`.config/figma-reader/config.json` と `.cache/figma-reader/`）に置かれます。Windows では `C:\Users\<name>\.config\...` および `C:\Users\<name>\.cache\...` に解決されます
+- 設定ファイルとレスポンスキャッシュは、既定では `%APPDATA%` / `%LOCALAPPDATA%` ではなく、ホームディレクトリ配下（`.config/figma-reader/config.json` と `.cache/figma-reader/`）に置かれます。Windows では `C:\Users\<name>\.config\...` および `C:\Users\<name>\.cache\...` に解決されます。キャッシュの保存先は `FIGMA_READER_CACHE_DIR` で変更できます（[キャッシュ](#キャッシュ)を参照）
 - キャッシュファイルは、同一マシンの他ユーザーからデザインデータを読まれないよう `0600` で作成されます。Windows は POSIX のパーミッションビットを無視するため、この保護は働きません
 - `~` から始まるパス（`--dest ~/.codex/skills/figma-reader-cli` など）は `cmd.exe` / PowerShell では展開されません。絶対パスを指定してください
 
@@ -110,7 +110,7 @@ Figma API のレートリミットは回復までに数時間かかるため、`
 すべてのレスポンスには、キャッシュ由来かどうかとその古さを示す `_cache` オブジェクトが含まれます:
 
 ```json
-{ "_cache": { "hit": true, "cached": true, "fetchedAt": "2026-09-19T04:00:00.000Z", "ageSeconds": 93600, "note": "Served from local cache ..." } }
+{ "_cache": { "hit": true, "cached": true, "enabled": true, "fetchedAt": "2026-09-19T04:00:00.000Z", "ageSeconds": 93600, "note": "Served from local cache ..." } }
 ```
 
 `lastModified` は `fetchedAt` の時点でのファイルの状態を反映したものであり、Figma ファイルの現在の状態ではない点に注意してください。
@@ -121,7 +121,44 @@ Figma API のレートリミットは回復までに数時間かかるため、`
 { "_request": { "nodeIds": ["10:99", "1:2"] } }
 ```
 
-キャッシュファイルは `~/.cache/figma-reader/`（`$XDG_CACHE_HOME` が絶対パスの場合は `$XDG_CACHE_HOME/figma-reader/`）に置かれます。他の機能はこれに依存していないため、ディレクトリはいつ削除しても構いません。次回の呼び出しで再取得されるだけです。
+`enabled` は、`FIGMA_READER_CACHE` でキャッシュを無効にしている場合に `false` になります（後述）。レスポンスをディスクに書き込めなかった場合は、`note` にエラーコード・キャッシュディレクトリ・対処方法が記載されます。
+
+キャッシュファイルは、次のうち最初に該当する場所に置かれます:
+
+1. `$FIGMA_READER_CACHE_DIR/`（この変数が設定されている場合）
+2. `$XDG_CACHE_HOME/figma-reader/`（この変数が絶対パスの場合）
+3. `~/.cache/figma-reader/`
+
+他の機能はこれに依存していないため、既定のディレクトリ（2 番目か 3 番目の場所）はいつ削除しても構いません。次回の呼び出しで再取得されるだけです。`FIGMA_READER_CACHE_DIR` を設定している場合、ファイルはそのディレクトリの直下に置かれるため、削除するのはそのディレクトリが figma-reader 専用のときだけにしてください。
+
+##### 環境変数
+
+| 変数 | 説明 |
+|------|------|
+| `FIGMA_READER_CACHE_DIR` | キャッシュの保存先ディレクトリ。**絶対パスのみ**受け付けます。`~` や変数は展開されず、相対パスはエラーになります。`.envrc` などシェル側で展開した値を渡してください。ファイルはこのディレクトリの直下に置かれ `figma-reader/` は付かないため、**専用のディレクトリ**を指定してください。空文字・空白のみは未設定として扱います。`XDG_CACHE_HOME` より優先されます |
+| `FIGMA_READER_CACHE` | キャッシュの有効/無効。`1` / `true` / `on` で有効、`0` / `false` / `off` で無効（大文字小文字・前後の空白は問いません）。未設定・空文字は有効として扱います。それ以外の値はエラーになります |
+
+`FIGMA_READER_CACHE=off` のとき、`inspect` はディスクに一切触れません。キャッシュファイルの読み取り・書き込み・削除を行わず、`FIGMA_READER_CACHE_DIR` も参照しません。毎回 API リクエストを消費し、`--refresh` を付けても挙動は変わりません。既存のキャッシュファイルはそのまま残るため、キャッシュを有効に戻すと、無効にする前に保存したレスポンスが返ることがあります。`--refresh` の代わりにはなりません。
+
+どちらの変数も読むのは `inspect` だけです。不正な値のとき `inspect` は機械可読なエラーで終了しますが、他のコマンドには影響しません。
+
+##### sandbox の中で使う場合
+
+エージェントの sandbox 環境では、ホームディレクトリへの書き込みが拒否されることがあります。たとえば Claude Code の sandbox は、既定では作業ディレクトリとセッションごとの一時ディレクトリにしか書き込みを許さないため、`~/.cache/figma-reader/` に書き込めません。するとキャッシュが溜まらず、毎回 API リクエストを消費し、`_cache.note` に書き込み失敗が表示されます。
+
+対処方法は次のいずれかです:
+
+- sandbox でキャッシュディレクトリへの書き込みを許可する。Claude Code では、user settings（`~/.claude/settings.json`）の `sandbox.filesystem.allowWrite` に追加します。ここに書いたパスは各プロジェクトの設定とマージされるため、全プロジェクトで有効になります:
+
+  ```json
+  { "sandbox": { "filesystem": { "allowWrite": ["~/.cache/figma-reader"] } } }
+  ```
+
+  これは既定の保存先です。`XDG_CACHE_HOME` や `FIGMA_READER_CACHE_DIR` を設定している場合は、代わりに `_cache.note` に表示されたディレクトリを許可してください。
+
+- `FIGMA_READER_CACHE_DIR` を、sandbox が書き込みを許している絶対パスに向ける。
+
+`sandbox.excludedCommands` に `figma-reader` を追加する方法はお勧めしません。リダイレクトやパイプを含むコマンドには除外が適用されず、エージェントは通常 `inspect` の出力をリダイレクトで保存するためです。詳しくは [Claude Code の sandbox のドキュメント](https://code.claude.com/docs/en/sandboxing.md)を参照してください。
 
 ### `export` - 画像エクスポート
 

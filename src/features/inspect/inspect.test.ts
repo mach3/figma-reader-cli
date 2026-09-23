@@ -1,4 +1,4 @@
-import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -178,7 +178,13 @@ describe("getNodes", () => {
 
 describe("getNodesWithCache", () => {
   const cacheDir = join(tmpdir(), `figma-reader-inspect-cache-test-${Date.now()}`);
-  const base = { fileKey: "ABC123", nodeId: "1:23", token: "test-token", refresh: false, cacheDir };
+  const base = {
+    fileKey: "ABC123",
+    nodeId: "1:23",
+    token: "test-token",
+    refresh: false,
+    cache: { enabled: true, dir: cacheDir } as const,
+  };
 
   // mockResolvedValue だと同一 Response を使い回して body が二度読めなくなるため、
   // 呼び出しごとに新しい Response を返す
@@ -310,7 +316,7 @@ describe("getNodesWithCache", () => {
 
     const result = await getNodesWithCache({ ...base, refresh: true });
 
-    expect(result._unsafeUnwrap().cacheWriteFailed).toBe(true);
+    expect(result._unsafeUnwrap().writeFailure?.dir).toBe(cacheDir);
     expect(await hasCachedNodes(base)).toBe(false);
   });
 
@@ -329,6 +335,9 @@ describe("getNodesWithCache", () => {
     expect(value.staleEntryRemains).toBe(true);
     expect(value.meta.cached).toBe(false);
     expect(value.meta.note).toContain("stale");
+    // 書き込みと削除の失敗が重なっても、書き込み失敗の原因と回復手段は伝える
+    expect(value.writeFailure?.dir).toBe(cacheDir);
+    expect(value.meta.note).toContain("FIGMA_READER_CACHE_DIR");
     // 古いエントリは実際に残っている
     expect(await hasCachedNodes(base)).toBe(true);
   });
@@ -353,19 +362,68 @@ describe("getNodesWithCache", () => {
     expect(await hasCachedNodes({ ...base, depth: 2 })).toBe(false);
   });
 
-  it("キャッシュを書けなくてもコマンドは成功し cacheWriteFailed を立てる", async () => {
+  it("キャッシュを書けなくてもコマンドは成功し writeFailure に原因と書き込み先を載せる", async () => {
     mockFetch(okBody);
     await mkdir(cacheDir, { recursive: true });
     const blocked = join(cacheDir, "blocked");
     await writeFile(blocked, "", "utf-8");
 
-    const result = await getNodesWithCache({ ...base, cacheDir: blocked });
+    const result = await getNodesWithCache({ ...base, cache: { enabled: true, dir: blocked } });
 
     const value = result._unsafeUnwrap();
-    expect(value.cacheWriteFailed).toBe(true);
+    expect(value.writeFailure?.dir).toBe(blocked);
+    expect(value.writeFailure?.code).toEqual(expect.any(String));
+    expect(value.writeFailure?.code).not.toBe("unknown");
     expect(value.meta.hit).toBe(false);
     expect(value.response.name).toBe("TestFile");
-    // stdout の JSON だけを読むエージェントにも保存失敗が伝わる必要がある
+    // stdout の JSON だけを読むエージェントにも保存失敗とその書き込み先が伝わる必要がある
     expect(value.meta.note).toContain("NOT cached");
+    expect(value.meta.note).toContain(blocked);
+  });
+
+  describe("キャッシュ無効", () => {
+    let tmp: string;
+
+    afterEach(async () => {
+      vi.unstubAllEnvs();
+      // mkdtemp より前で失敗したときに、rm の TypeError で本来の失敗を覆わない
+      if (tmp) {
+        await rm(tmp, { recursive: true, force: true });
+      }
+    });
+
+    // 無効化をナイーブに「保存しない」と実装すると、保存しなかった場合の deleteCache に
+    // 落ちて既存キャッシュが消える。既定の解決先も tmp 配下へ向けておくことで、
+    // 実装が誤って既定のパスを組み立てて触った場合にもこのテストで検出できるようにする
+    it("API を毎回呼び、既存のキャッシュファイルを読みも消しもしない", async () => {
+      tmp = await mkdtemp(join(tmpdir(), "figma-reader-cache-off-"));
+      vi.stubEnv("XDG_CACHE_HOME", tmp);
+      const enabled = { enabled: true, dir: join(tmp, "figma-reader") } as const;
+      const input = { fileKey: "ABC123", nodeId: "1:23", token: "test-token", refresh: false };
+
+      const spy = mockFetch(okBody);
+      await getNodesWithCache({ ...input, cache: enabled });
+      const filePath = getCacheFilePath(normalizeRequest(input), enabled.dir);
+      const before = await readFile(filePath, "utf-8");
+      spy.mockClear();
+
+      const disabled = { ...input, cache: { enabled: false } as const };
+      const first = await getNodesWithCache(disabled);
+      // --refresh は無効時は no-op。エラーにせず普通に取得する
+      const second = await getNodesWithCache({ ...disabled, refresh: true });
+
+      expect(spy).toHaveBeenCalledTimes(2);
+      for (const result of [first, second]) {
+        const value = result._unsafeUnwrap();
+        expect(value.meta.enabled).toBe(false);
+        expect(value.meta.hit).toBe(false);
+        expect(Number.isFinite(Date.parse(value.meta.fetchedAt))).toBe(true);
+        expect(value.writeFailure).toBeUndefined();
+        expect(value.staleEntryRemains).toBe(false);
+      }
+      expect(await readFile(filePath, "utf-8")).toBe(before);
+      // --refresh 失敗時の案内でもディスクを読まない
+      expect(await hasCachedNodes(disabled)).toBe(false);
+    });
   });
 });

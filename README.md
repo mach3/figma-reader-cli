@@ -18,7 +18,7 @@ Requires **Node.js 22.12 or later**. Node 18 and 20 have reached end-of-life and
 
 The supported platforms are **macOS and Linux**. Windows is best-effort: the CLI is expected to run, but it is not an officially supported target, and the following known differences will not be addressed.
 
-- The config file and the response cache are stored under your home directory (`.config/figma-reader/config.json` and `.cache/figma-reader/`), not under `%APPDATA%` or `%LOCALAPPDATA%`. On Windows they resolve to `C:\Users\<name>\.config\...` and `C:\Users\<name>\.cache\...`.
+- By default, the config file and the response cache are stored under your home directory (`.config/figma-reader/config.json` and `.cache/figma-reader/`), not under `%APPDATA%` or `%LOCALAPPDATA%`. On Windows they resolve to `C:\Users\<name>\.config\...` and `C:\Users\<name>\.cache\...`. The cache location can be changed with `FIGMA_READER_CACHE_DIR` (see [Caching](#caching)).
 - Cache files are created with mode `0600` so that other users of the machine cannot read the design data they hold. Windows ignores POSIX permission bits, so that protection does not apply there.
 - Paths beginning with `~` (such as `--dest ~/.codex/skills/figma-reader-cli`) are not expanded by `cmd.exe` or PowerShell. Pass an absolute path instead.
 
@@ -112,7 +112,7 @@ Figma's API rate limit recovers over hours, so `inspect` responses are cached on
 Every response carries a `_cache` object reporting whether it came from the cache and how old it is:
 
 ```json
-{ "_cache": { "hit": true, "cached": true, "fetchedAt": "2026-09-19T04:00:00.000Z", "ageSeconds": 93600, "note": "Served from local cache ..." } }
+{ "_cache": { "hit": true, "cached": true, "enabled": true, "fetchedAt": "2026-09-19T04:00:00.000Z", "ageSeconds": 93600, "note": "Served from local cache ..." } }
 ```
 
 Note that `lastModified` reflects the file as of `fetchedAt`, not the current state of the Figma file.
@@ -123,7 +123,44 @@ Every `inspect` JSON response also carries `_request.nodeIds`, the node ids the 
 { "_request": { "nodeIds": ["10:99", "1:2"] } }
 ```
 
-Cache files live in `~/.cache/figma-reader/` (or `$XDG_CACHE_HOME/figma-reader/` when that variable holds an absolute path). Nothing else depends on them, so the directory can be deleted at any time; the next call simply fetches again.
+`enabled` is `false` when the cache is turned off with `FIGMA_READER_CACHE` (see below). When a response could not be written to disk, `note` names the error code, the cache directory, and how to fix it.
+
+Cache files live in the first of these that applies:
+
+1. `$FIGMA_READER_CACHE_DIR/`, when that variable is set
+2. `$XDG_CACHE_HOME/figma-reader/`, when that variable holds an absolute path
+3. `~/.cache/figma-reader/`
+
+Nothing else depends on them, so the default directory (the second or third location) can be deleted at any time; the next call simply fetches again. If you set `FIGMA_READER_CACHE_DIR`, delete that directory only when it is dedicated to figma-reader, since files are placed directly under it.
+
+##### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `FIGMA_READER_CACHE_DIR` | Directory to store the cache in. **Absolute paths only**: `~` and variables are not expanded, and a relative path is rejected with an error. Expand the value in your shell (e.g. `.envrc`) before passing it. The files are placed directly under this directory (no `figma-reader/` is appended), so point it at a **dedicated** directory. Empty or whitespace-only means unset. Takes priority over `XDG_CACHE_HOME` |
+| `FIGMA_READER_CACHE` | Turns the cache on or off. `1` / `true` / `on` enable it, `0` / `false` / `off` disable it (case-insensitive, surrounding whitespace ignored). Unset or empty means on. Any other value is rejected with an error |
+
+With `FIGMA_READER_CACHE=off`, `inspect` never touches the disk: it does not read, write, or delete cache files, and `FIGMA_READER_CACHE_DIR` is ignored. Every call spends an API request, and `--refresh` has no additional effect. Existing cache files are left as they are, so turning the cache back on may serve responses stored before it was turned off. It is not a substitute for `--refresh`.
+
+Both variables are read only by `inspect`; an invalid value makes `inspect` exit with a machine-readable error, while other commands are unaffected.
+
+##### Running inside a sandbox
+
+Sandboxed agent environments may refuse writes to your home directory. The sandbox in Claude Code, for example, allows writes only to the working directory and a per-session temporary directory by default, so `~/.cache/figma-reader/` cannot be written. The cache then never fills up, every call spends an API request, and `_cache.note` reports the failed write.
+
+To fix this, either:
+
+- Allow writes to the cache directory in the sandbox. In Claude Code, add it to `sandbox.filesystem.allowWrite` in your user settings (`~/.claude/settings.json`); paths there are merged with every project's settings, so this works across projects:
+
+  ```json
+  { "sandbox": { "filesystem": { "allowWrite": ["~/.cache/figma-reader"] } } }
+  ```
+
+  This is the default location. If you set `XDG_CACHE_HOME` or `FIGMA_READER_CACHE_DIR`, allow the directory named in `_cache.note` instead.
+
+- Or set `FIGMA_READER_CACHE_DIR` to an absolute path that the sandbox already allows writing to.
+
+Adding `figma-reader` to `sandbox.excludedCommands` is not recommended: the exclusion does not apply to commands that contain a redirect or a pipe, which is how agents usually save `inspect` output. See the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing.md) for details.
 
 ### `export` - Export images
 

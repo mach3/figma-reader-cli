@@ -1,5 +1,11 @@
 import { defineCommand } from "citty";
-import { type CacheMeta, formatAge, STALE_WARNING_SECONDS } from "../../lib/cache.js";
+import {
+  type CacheMeta,
+  formatAge,
+  formatCacheWriteHint,
+  resolveCacheSettings,
+  STALE_WARNING_SECONDS,
+} from "../../lib/cache.js";
 import { resolveToken } from "../../lib/config.js";
 import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
@@ -71,6 +77,14 @@ export default defineCommand({
       return process.exit(1);
     }
 
+    // キャッシュを参照するのは inspect だけなので、env はここで初めて読む（auth や me を落とさない）。
+    // トークン解決より前に置くのは、トークン未設定と env の誤りが重なったときに往復を増やさないため
+    const cacheResult = resolveCacheSettings();
+    if (cacheResult.isErr()) {
+      outputError(args.pretty, cacheResult.error);
+      return process.exit(1);
+    }
+
     const tokenResult = await resolveToken(args.profile);
     if (tokenResult.isErr()) {
       outputError(args.pretty, tokenResult.error);
@@ -92,6 +106,7 @@ export default defineCommand({
       token: tokenResult.value,
       depth: depthResult.value,
       geometry: args.geometry,
+      cache: cacheResult.value,
     };
 
     const nodesResult = await getNodesWithCache({ ...nodesOptions, refresh: args.refresh });
@@ -107,19 +122,22 @@ export default defineCommand({
       return process.exit(1);
     }
 
-    const { response, meta, request, cacheWriteFailed, staleEntryRemains } = nodesResult.value;
+    const { response, meta, request, writeFailure, staleEntryRemains } = nodesResult.value;
+    // 原因と回復手段を添えないと、sandbox に書き込みを拒否され続けていても気づけない
+    // 書き込み失敗がないときは既存の文面を変えないよう、句点も hint 側に含める
+    const writeHint = writeFailure ? `. ${formatCacheWriteHint(writeFailure)}` : "";
 
     // 警告は stdout の JSON を汚さないよう stderr に出す
-    if (cacheWriteFailed && !staleEntryRemains) {
+    if (writeFailure && !staleEntryRemains) {
       console.error(
-        "Warning: failed to write the cache; the next run will call the Figma API again",
+        `Warning: failed to write the cache; the next run will call the Figma API again${writeHint}`,
       );
     }
     // 取り直したデータを保存できず、かつ古いエントリも消せなかった場合だけは
     // 「次回は API を呼ぶ」が成り立たない。古い結果が返りうることを伝える
     if (staleEntryRemains) {
       console.error(
-        "Warning: could not store this response and could not remove the older cached one; running without --refresh may return the stale response",
+        `Warning: could not store this response and could not remove the older cached one; running without --refresh may return the stale response${writeHint}`,
       );
     }
     // 文面は _cache.note を使い回す。同じ案内を二重に管理しない
@@ -184,6 +202,10 @@ function formatNodesResponse(
 
 /** pretty 出力の 1 行目。JSON の _cache と同じ事実を人間向けに縮めたもの */
 function formatCacheLine(meta: CacheMeta): string {
+  // 無効時も hit:false, cached:false なので、先に判定しないと「保存に失敗した」と読める
+  if (!meta.enabled) {
+    return "Cache: disabled (FIGMA_READER_CACHE)";
+  }
   if (meta.hit) {
     return `Cache: hit (fetched ${formatAge(meta.ageSeconds)} ago)`;
   }

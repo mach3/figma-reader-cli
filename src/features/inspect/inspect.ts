@@ -2,9 +2,13 @@ import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
 import {
   buildCacheMeta,
+  buildDisabledCacheMeta,
   type CacheMeta,
   type CacheRequest,
+  type CacheSettings,
+  type CacheWriteFailure,
   deleteCache,
+  getWriteErrorCode,
   hasCachedEntry,
   normalizeRequest,
   readCache,
@@ -105,7 +109,7 @@ export async function getNodes(
   return result;
 }
 
-export type CacheableNodesOptions = GetNodesOptions & { cacheDir?: string };
+export type CacheableNodesOptions = GetNodesOptions & { cache: CacheSettings };
 
 export type GetNodesWithCacheOptions = CacheableNodesOptions & { refresh: boolean };
 
@@ -115,7 +119,11 @@ export type GetNodesWithCacheOptions = CacheableNodesOptions & { refresh: boolea
  * --refresh が失敗したときに「キャッシュを使えば取得できる」と案内するために使う
  */
 export async function hasCachedNodes(options: CacheableNodesOptions): Promise<boolean> {
-  return hasCachedEntry(normalizeRequest(options), options.cacheDir);
+  // 無効時はディスクを一切触らない約束なので、ファイルが残っていても読まない
+  if (!options.cache.enabled) {
+    return false;
+  }
+  return hasCachedEntry(normalizeRequest(options), options.cache.dir);
 }
 
 export type CachedNodesResult = {
@@ -123,8 +131,8 @@ export type CachedNodesResult = {
   meta: CacheMeta;
   /** 正規化済みのリクエスト。呼び出し元が「要求した node-id」を知るために使う */
   request: CacheRequest;
-  /** キャッシュ書き込みに失敗したか。コマンド自体は成功させたうえで呼び出し元が警告する */
-  cacheWriteFailed: boolean;
+  /** キャッシュ書き込みの失敗内容。コマンド自体は成功させたうえで呼び出し元が警告する。失敗していなければ undefined */
+  writeFailure: CacheWriteFailure | undefined;
   /** 保存しなかったうえ、古いエントリの破棄にも失敗したか。次の通常呼び出しが古い結果を返しうる */
   staleEntryRemains: boolean;
 };
@@ -138,9 +146,10 @@ export async function getNodesWithCache(
   options: GetNodesWithCacheOptions,
 ): Promise<Result<CachedNodesResult, AppError>> {
   const request = normalizeRequest(options);
+  const { cache } = options;
 
-  if (!options.refresh) {
-    const entry = await readCache(request, options.cacheDir);
+  if (cache.enabled && !options.refresh) {
+    const entry = await readCache(request, cache.dir);
     if (entry) {
       return ok({
         response: entry.response,
@@ -151,7 +160,7 @@ export async function getNodesWithCache(
           now: Date.now(),
         }),
         request,
-        cacheWriteFailed: false,
+        writeFailure: undefined,
         staleEntryRemains: false,
       });
     }
@@ -168,18 +177,34 @@ export async function getNodesWithCache(
   const response = result.value;
   const fetchedAt = new Date().toISOString();
 
+  // 無効時は読み取り・書き込み・削除のいずれにも到達させない。とりわけ下の
+  // 「保存しなかったら deleteCache」に落とすと、一時的に切っただけで既存キャッシュが消える。
+  // --refresh の「最新を取れ」という意図は毎回 API を呼ぶことで満たされるので無視してよい
+  if (!cache.enabled) {
+    return ok({
+      response,
+      meta: buildDisabledCacheMeta({ fetchedAt }),
+      request,
+      writeFailure: undefined,
+      staleEntryRemains: false,
+    });
+  }
+
   // TTL を設けていないため、権限反映待ち・未作成フレーム・id の typo で得た
   // 空の結果を保存すると永久に固定されてしまう
   const writeResult = hasUnresolvedNode(request, response)
     ? undefined
-    : await writeCache(request, response, fetchedAt, options.cacheDir);
+    : await writeCache(request, response, fetchedAt, cache.dir);
   const stored = writeResult?.isOk() ?? false;
+  const writeFailure = writeResult?.isErr()
+    ? { code: getWriteErrorCode(writeResult.error), dir: cache.dir }
+    : undefined;
 
   // 取得したのに保存しなかった場合は、古いエントリを必ず消す。writeCache は
   // 一時ファイル → rename で書くため失敗時は既存ファイルが手つかずで残り、
   // --refresh で取り直した直後でも次の通常呼び出しが古いデザインを hit として
   // 返してしまう。「保存しなかったならディスクにも残っていない」を不変条件にする
-  const discardResult = stored ? undefined : await deleteCache(request, options.cacheDir);
+  const discardResult = stored ? undefined : await deleteCache(request, cache.dir);
   const staleEntryRemains = discardResult?.isErr() ?? false;
 
   return ok({
@@ -188,11 +213,12 @@ export async function getNodesWithCache(
       hit: false,
       cached: stored,
       staleEntryRemains,
+      writeFailure,
       fetchedAt,
       now: Date.now(),
     }),
     request,
-    cacheWriteFailed: writeResult?.isErr() ?? false,
+    writeFailure,
     staleEntryRemains,
   });
 }

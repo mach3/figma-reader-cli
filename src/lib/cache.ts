@@ -28,12 +28,20 @@ export type CacheEntry = {
 /** 出力に添える取得元と鮮度の情報 */
 export type CacheMeta = {
   hit: boolean;
-  /** このレスポンスがディスク上のキャッシュに存在するか。false なら同じ要求が再び API を消費する */
+  /**
+   * この呼び出しの結果がディスク上のキャッシュに保存されているか。false なら同じ要求が再び API を消費する。
+   * キャッシュ無効時は常に false だが、無効化前に保存されたファイルは消さないため残っていることがある
+   */
   cached: boolean;
+  /** キャッシュ機能が有効か。false なら FIGMA_READER_CACHE で無効化されており、ディスクには一切触れていない */
+  enabled: boolean;
   fetchedAt: string;
   ageSeconds: number;
   note: string;
 };
+
+/** キャッシュ書き込みの失敗内容。dir は書き込みを許可すべき単位であるキャッシュのルート */
+export type CacheWriteFailure = { code: string; dir: string };
 
 export type NormalizeRequestInput = {
   fileKey: string;
@@ -62,13 +70,65 @@ export function normalizeRequest({
 }
 
 /**
- * キャッシュのルートディレクトリを返す。
+ * キャッシュの有効/無効と保存先。
+ * 無効側に dir を持たせないのは、無効時にパスを組み立ててディスクへ触れる経路
+ * （とりわけ既存キャッシュの削除）を型の上で断つため
+ */
+export type CacheSettings = { enabled: false } | { enabled: true; dir: string };
+
+const ENABLED_VALUES = ["1", "true", "on"];
+const DISABLED_VALUES = ["0", "false", "off"];
+
+/**
+ * 環境変数からキャッシュ設定を解決する。
+ * inspect がキャッシュを参照する時点でだけ呼ぶこと。起動時に読むと、
+ * キャッシュを使わない auth や me まで env の不正値で落ちてしまう
+ */
+export function resolveCacheSettings(): Result<CacheSettings, AppError> {
+  const rawSwitch = process.env.FIGMA_READER_CACHE;
+  // .env・CI の環境変数 UI・YAML は末尾空白や `True` を混入させるため正規化して照合する。
+  // 空は未設定扱い。`FIGMA_READER_CACHE=$UNDEFINED` で空文字が渡るスクリプトを壊さないため
+  const normalizedSwitch = rawSwitch?.trim().toLowerCase() ?? "";
+  if (DISABLED_VALUES.includes(normalizedSwitch)) {
+    // 使わないパスの妥当性で起動不能にしないよう、DIR は読みもしない
+    return ok({ enabled: false });
+  }
+  if (normalizedSwitch !== "" && !ENABLED_VALUES.includes(normalizedSwitch)) {
+    return err({
+      type: "CUSTOM_ERROR",
+      message: `FIGMA_READER_CACHE must be one of ${[...ENABLED_VALUES, ...DISABLED_VALUES].join(", ")} (case-insensitive); got ${JSON.stringify(rawSwitch)}. To change the cache location, use FIGMA_READER_CACHE_DIR`,
+    });
+  }
+
+  const rawDir = process.env.FIGMA_READER_CACHE_DIR;
+  // 生の値ではなく trim 後の値を使う。先頭に空白が残ると join の結果が
+  // 相対パスに化け、検証を通ったまま cwd 配下へ書き出されてしまう
+  const dir = rawDir?.trim() ?? "";
+  if (dir !== "") {
+    // 相対パスはエージェントの起動場所ごとに別ディレクトリへ解決され、
+    // キャッシュが黙って分裂する。「効かない」より原因究明が難しいので拒否する
+    if (!isAbsolute(dir)) {
+      return err({
+        type: "CUSTOM_ERROR",
+        message: `FIGMA_READER_CACHE_DIR must be an absolute path; got ${JSON.stringify(rawDir)}. "~" and environment variables are not expanded`,
+      });
+    }
+    // 専用ディレクトリとして指定される前提なので figma-reader/ は付けない
+    return ok({ enabled: true, dir });
+  }
+
+  return ok({ enabled: true, dir: getDefaultCacheDir() });
+}
+
+/**
+ * FIGMA_READER_CACHE_DIR 未指定時のルートを返す。
  * XDG_CACHE_HOME は**絶対パスのときだけ**採用する。XDG Base Directory 仕様が
  * 相対パスを無効と定めており、`XDG_CACHE_HOME=.cache` のような設定を
  * そのまま使うとキャッシュが cwd（多くはリポジトリルート）に書き出され、
- * デザインデータがリポジトリへ漏れるため
+ * デザインデータがリポジトリへ漏れるため。他ツール向けの設定を横から読んでいる
+ * だけなので、不正値でもエラーにはせずフォールバックする
  */
-export function getCacheDir(): string {
+function getDefaultCacheDir(): string {
   const xdg = process.env.XDG_CACHE_HOME?.trim();
   if (xdg && isAbsolute(xdg)) {
     return join(xdg, "figma-reader");
@@ -97,9 +157,13 @@ function sanitizeFileKey(fileKey: string): string {
   return fileKey.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
-/** キャッシュファイルの絶対パスを返す。cacheDir はテスト用に差し替え可能 */
-export function getCacheFilePath(request: CacheRequest, cacheDir = getCacheDir()): string {
-  return join(cacheDir, "v1", sanitizeFileKey(request.fileKey), `${buildCacheKey(request)}.json`);
+/**
+ * キャッシュファイルの絶対パスを返す。
+ * cacheDir を必須にしているのは、既定値で補うと FIGMA_READER_CACHE の無効化や
+ * FIGMA_READER_CACHE_DIR の検証を素通りしてディスクへ触れる経路ができるため
+ */
+export function getCacheFilePath(request: CacheRequest, cacheDir: string): string {
+  return join(cacheDir, sanitizeFileKey(request.fileKey), `${buildCacheKey(request)}.json`);
 }
 
 /**
@@ -109,7 +173,7 @@ export function getCacheFilePath(request: CacheRequest, cacheDir = getCacheDir()
  */
 export async function readCache(
   request: CacheRequest,
-  cacheDir = getCacheDir(),
+  cacheDir: string,
 ): Promise<CacheEntry | undefined> {
   try {
     const content = await readFile(getCacheFilePath(request, cacheDir), "utf-8");
@@ -146,7 +210,7 @@ export async function readCache(
  */
 export async function deleteCache(
   request: CacheRequest,
-  cacheDir = getCacheDir(),
+  cacheDir: string,
 ): Promise<Result<void, AppError>> {
   try {
     await unlink(getCacheFilePath(request, cacheDir));
@@ -160,10 +224,7 @@ export async function deleteCache(
 }
 
 /** 使えるキャッシュが存在するか。--refresh が失敗したときの案内に使う */
-export async function hasCachedEntry(
-  request: CacheRequest,
-  cacheDir = getCacheDir(),
-): Promise<boolean> {
+export async function hasCachedEntry(request: CacheRequest, cacheDir: string): Promise<boolean> {
   return (await readCache(request, cacheDir)) !== undefined;
 }
 
@@ -177,7 +238,7 @@ export async function writeCache(
   request: CacheRequest,
   response: FigmaNodesResponse,
   fetchedAt: string,
-  cacheDir = getCacheDir(),
+  cacheDir: string,
 ): Promise<Result<void, AppError>> {
   const filePath = getCacheFilePath(request, cacheDir);
   const tmpPath = `${filePath}.${process.pid}.tmp`;
@@ -209,6 +270,8 @@ export type BuildCacheMetaInput = {
   cached: boolean;
   /** 保存できなかったうえ、古いエントリの破棄にも失敗したか */
   staleEntryRemains?: boolean;
+  /** 書き込みを試みて失敗した場合の内容。未解決 id のために書き込まなかった場合は渡さない */
+  writeFailure?: CacheWriteFailure;
   fetchedAt: string;
   now: number;
 };
@@ -223,6 +286,7 @@ export function buildCacheMeta({
   hit,
   cached,
   staleEntryRemains = false,
+  writeFailure,
   fetchedAt,
   now,
 }: BuildCacheMetaInput): CacheMeta {
@@ -232,10 +296,51 @@ export function buildCacheMeta({
   return {
     hit,
     cached,
+    enabled: true,
     fetchedAt,
     ageSeconds,
-    note: buildNote({ hit, cached, staleEntryRemains, ageSeconds }),
+    note: buildNote({ hit, cached, staleEntryRemains, writeFailure, ageSeconds }),
   };
+}
+
+/**
+ * キャッシュ無効時の CacheMeta を組み立てる（純粋関数）。
+ * 無効と「書き込みに失敗した」はどちらも hit:false, cached:false になるため、
+ * enabled と note で区別しないと消費側が「次は使える」と誤解する
+ */
+export function buildDisabledCacheMeta({ fetchedAt }: { fetchedAt: string }): CacheMeta {
+  return {
+    hit: false,
+    cached: false,
+    enabled: false,
+    fetchedAt,
+    ageSeconds: 0,
+    note: "Cache disabled by FIGMA_READER_CACHE; fetched from the Figma API and NOT cached. Every request calls the API. Existing cache files were left untouched and may be served again once the cache is re-enabled.",
+  };
+}
+
+/** 書き込み失敗の原因となったエラーコード（EPERM など）を取り出す。取り出せなければ "unknown" */
+export function getWriteErrorCode(error: AppError): string {
+  if (error.type !== "CONFIG_WRITE_ERROR") {
+    return "unknown";
+  }
+  // Error インスタンスに限らない。モックや別 realm から来た errno 風のオブジェクトでも code は読める
+  const { cause } = error;
+  return typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    typeof cause.code === "string"
+    ? cause.code
+    : "unknown";
+}
+
+/**
+ * 書き込み失敗の原因と回復手段を述べる文。note と stderr の警告の両方で使い、文面を二重管理しない。
+ * sandbox（Claude Code など）がホーム配下への書き込みを拒否すると、キャッシュが一度も溜まらないまま
+ * 誰も気づかないため、原因と書き込み先を明示する。sandbox の設定キー名は仕様変更で嘘になりうるので出さない
+ */
+export function formatCacheWriteHint({ code, dir }: CacheWriteFailure): string {
+  return `Writing the cache under ${dir} failed (${code}). If this runs in a sandbox (e.g. Claude Code), allow writes to ${dir}, or set FIGMA_READER_CACHE_DIR to a writable absolute path. FIGMA_READER_CACHE=off skips the cache entirely.`;
 }
 
 /**
@@ -247,11 +352,13 @@ function buildNote({
   hit,
   cached,
   staleEntryRemains,
+  writeFailure,
   ageSeconds,
 }: {
   hit: boolean;
   cached: boolean;
   staleEntryRemains: boolean;
+  writeFailure: CacheWriteFailure | undefined;
   ageSeconds: number;
 }): string {
   if (hit) {
@@ -261,9 +368,10 @@ function buildNote({
     return "Fetched from the Figma API and cached locally.";
   }
   // 「次回は API を呼ぶ」と言い切れるのは古いエントリが残っていないときだけ
-  return staleEntryRemains
+  const notCached = staleEntryRemains
     ? "Fetched from the Figma API but NOT cached, and an older cached response could not be removed; an identical request without --refresh may return that stale response instead."
     : "Fetched from the Figma API but NOT cached; an identical request will call the API again.";
+  return writeFailure ? `${notCached} ${formatCacheWriteHint(writeFailure)}` : notCached;
 }
 
 function isSameRequest(a: CacheRequest | undefined, b: CacheRequest): boolean {

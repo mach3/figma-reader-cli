@@ -1,18 +1,20 @@
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildCacheKey,
   buildCacheMeta,
+  buildDisabledCacheMeta,
   type CacheRequest,
   deleteCache,
   formatAge,
-  getCacheDir,
   getCacheFilePath,
+  getWriteErrorCode,
   hasCachedEntry,
   normalizeRequest,
   readCache,
+  resolveCacheSettings,
   writeCache,
 } from "./cache.js";
 import type { FigmaNodesResponse } from "./figma-client.js";
@@ -39,32 +41,108 @@ const response = {
   nodes: {},
 } satisfies FigmaNodesResponse;
 
-describe("getCacheDir", () => {
+describe("resolveCacheSettings", () => {
+  const defaultDir = join(homedir(), ".cache", "figma-reader");
+
+  // CI や開発者の環境に設定されている値に左右されないよう、関係する env をすべて明示する
+  function stubCacheEnv({ cache, dir, xdg }: { cache?: string; dir?: string; xdg?: string }) {
+    vi.stubEnv("FIGMA_READER_CACHE", cache);
+    vi.stubEnv("FIGMA_READER_CACHE_DIR", dir);
+    vi.stubEnv("XDG_CACHE_HOME", xdg);
+  }
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("XDG_CACHE_HOME 未設定なら ~/.cache/figma-reader を返す", () => {
-    vi.stubEnv("XDG_CACHE_HOME", undefined);
-    expect(getCacheDir()).toBe(join(homedir(), ".cache", "figma-reader"));
+  describe("保存先の解決", () => {
+    it("何も設定されていなければ ~/.cache/figma-reader を返す", () => {
+      stubCacheEnv({});
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: true, dir: defaultDir });
+    });
+
+    it("XDG_CACHE_HOME が絶対パスならそちらを優先する", () => {
+      const absolute = join(tmpdir(), "xdg-cache");
+      stubCacheEnv({ xdg: absolute });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({
+        enabled: true,
+        dir: join(absolute, "figma-reader"),
+      });
+    });
+
+    // 相対パスを採用すると cwd（多くはリポジトリルート）にデザインデータが書き出される
+    it.each([".cache", "~/.cache", " "])(
+      "XDG_CACHE_HOME が %o なら既定にフォールバックする",
+      (value) => {
+        stubCacheEnv({ xdg: value });
+        expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: true, dir: defaultDir });
+      },
+    );
+
+    it("FIGMA_READER_CACHE_DIR は XDG_CACHE_HOME より優先され、figma-reader/ を付けない", () => {
+      const dir = join(tmpdir(), "fr-cache");
+      stubCacheEnv({ dir, xdg: join(tmpdir(), "xdg-cache") });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: true, dir });
+    });
+
+    // 生の値を使うと先頭の空白で join の結果が相対パスに化ける
+    it("FIGMA_READER_CACHE_DIR は trim 後の値を使う", () => {
+      const dir = join(tmpdir(), "fr-cache");
+      stubCacheEnv({ dir: ` ${dir} ` });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: true, dir });
+    });
+
+    it.each(["", "  "])("FIGMA_READER_CACHE_DIR が %o なら未設定として扱う", (value) => {
+      const xdg = join(tmpdir(), "xdg-cache");
+      stubCacheEnv({ dir: value, xdg });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({
+        enabled: true,
+        dir: join(xdg, "figma-reader"),
+      });
+    });
+
+    // cwd 依存でキャッシュが黙って分裂するのを防ぐ
+    it.each(["rel", "./x", "~/x"])("FIGMA_READER_CACHE_DIR が %o ならエラーにする", (value) => {
+      stubCacheEnv({ dir: value });
+      const error = resolveCacheSettings()._unsafeUnwrapErr();
+      expect(error.type).toBe("CUSTOM_ERROR");
+      expect(error.type === "CUSTOM_ERROR" && error.message).toContain("FIGMA_READER_CACHE_DIR");
+    });
   });
 
-  it("XDG_CACHE_HOME が絶対パスならそちらを優先する", () => {
-    const absolute = join(tmpdir(), "xdg-cache");
-    vi.stubEnv("XDG_CACHE_HOME", absolute);
-    expect(getCacheDir()).toBe(join(absolute, "figma-reader"));
-  });
+  describe("FIGMA_READER_CACHE の解釈", () => {
+    it.each([" On ", "TRUE", "1"])("%o なら有効", (value) => {
+      stubCacheEnv({ cache: value });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: true, dir: defaultDir });
+    });
 
-  // 相対パスを採用すると cwd（多くはリポジトリルート）にデザインデータが書き出される
-  it.each([".cache", "~/.cache", " "])(
-    "XDG_CACHE_HOME が %o なら既定にフォールバックする",
-    (value) => {
-      vi.stubEnv("XDG_CACHE_HOME", value);
-      const result = getCacheDir();
-      expect(result).toBe(join(homedir(), ".cache", "figma-reader"));
-      expect(isAbsolute(result)).toBe(true);
-    },
-  );
+    it.each(["off", " False ", "0"])("%o なら無効", (value) => {
+      stubCacheEnv({ cache: value });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: false });
+    });
+
+    // `FIGMA_READER_CACHE=$UNDEFINED` で空文字が渡るスクリプトを壊さない
+    it.each([undefined, "", "  "])("%o なら既定の有効として扱う", (value) => {
+      stubCacheEnv({ cache: value });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: true, dir: defaultDir });
+    });
+
+    // FIGMA_READER_CACHE_DIR との取り違えを検出する
+    it.each(["/path/to/dir", "yes"])("%o なら受理値を列挙してエラーにする", (value) => {
+      stubCacheEnv({ cache: value });
+      const error = resolveCacheSettings()._unsafeUnwrapErr();
+      expect(error.type).toBe("CUSTOM_ERROR");
+      expect(error.type === "CUSTOM_ERROR" && error.message).toContain(
+        "1, true, on, 0, false, off",
+      );
+    });
+
+    // 使わないパスの妥当性で起動不能にしない
+    it("無効時は FIGMA_READER_CACHE_DIR が不正でもエラーにしない", () => {
+      stubCacheEnv({ cache: "off", dir: "rel" });
+      expect(resolveCacheSettings()._unsafeUnwrap()).toEqual({ enabled: false });
+    });
+  });
 });
 
 describe("normalizeRequest", () => {
@@ -112,15 +190,15 @@ describe("buildCacheKey", () => {
 });
 
 describe("getCacheFilePath", () => {
-  it("v1/<fileKey>/<key>.json に解決する", () => {
+  it("<fileKey>/<key>.json に解決する", () => {
     const path = getCacheFilePath(request, "/cache");
-    expect(path).toBe(join("/cache", "v1", "ABC123", `${buildCacheKey(request)}.json`));
+    expect(path).toBe(join("/cache", "ABC123", `${buildCacheKey(request)}.json`));
   });
 
   it("fileKey の英数字以外をディレクトリ名から除去する", () => {
     const path = getCacheFilePath({ ...request, fileKey: "a/b:c" }, "/cache");
     expect(path).toBe(
-      join("/cache", "v1", "a_b_c", `${buildCacheKey({ ...request, fileKey: "a/b:c" })}.json`),
+      join("/cache", "a_b_c", `${buildCacheKey({ ...request, fileKey: "a/b:c" })}.json`),
     );
   });
 });
@@ -179,6 +257,71 @@ describe("buildCacheMeta", () => {
   it("cached をそのまま出力に載せる", () => {
     expect(buildCacheMeta({ hit: true, cached: true, fetchedAt, now }).cached).toBe(true);
     expect(buildCacheMeta({ hit: false, cached: true, fetchedAt, now }).cached).toBe(true);
+  });
+
+  it("キャッシュが有効であることを示す", () => {
+    expect(buildCacheMeta({ hit: true, cached: true, fetchedAt, now }).enabled).toBe(true);
+  });
+
+  // sandbox に書き込みを拒否され続けても、原因と回復手段が分からなければ誰も気づけない
+  it.each([false, true])(
+    "書き込みに失敗したミスの note は原因と回復手段を含む（staleEntryRemains: %o）",
+    (staleEntryRemains) => {
+      const meta = buildCacheMeta({
+        hit: false,
+        cached: false,
+        staleEntryRemains,
+        writeFailure: { code: "EPERM", dir: "/c" },
+        fetchedAt,
+        now,
+      });
+      expect(meta.note).toContain("NOT cached");
+      expect(meta.note).toContain("EPERM");
+      expect(meta.note).toContain("/c");
+      expect(meta.note).toContain("FIGMA_READER_CACHE_DIR");
+    },
+  );
+
+  // 未解決 id のために書き込まなかった場合は、書き込みの失敗ではない
+  it("書き込みを試みなかったミスの note は回復手段を含まない", () => {
+    const meta = buildCacheMeta({ hit: false, cached: false, fetchedAt, now });
+    expect(meta.note).not.toContain("FIGMA_READER_CACHE_DIR");
+  });
+});
+
+describe("buildDisabledCacheMeta", () => {
+  const fetchedAt = "2026-09-20T00:00:00.000Z";
+
+  // 無効と書き込み失敗はどちらも hit:false, cached:false なので enabled で区別させる
+  it("無効状態であることを示し、取得時刻をそのまま載せる", () => {
+    const meta = buildDisabledCacheMeta({ fetchedAt });
+    expect(meta).toMatchObject({
+      hit: false,
+      cached: false,
+      enabled: false,
+      fetchedAt,
+      ageSeconds: 0,
+    });
+    expect(meta.note).toContain("FIGMA_READER_CACHE");
+  });
+});
+
+describe("getWriteErrorCode", () => {
+  it("cause の code を返す", () => {
+    const cause = Object.assign(new Error("x"), { code: "EPERM" });
+    expect(getWriteErrorCode({ type: "CONFIG_WRITE_ERROR", cause })).toBe("EPERM");
+  });
+
+  it("Error でなくても code を持つ cause ならその値を返す", () => {
+    expect(getWriteErrorCode({ type: "CONFIG_WRITE_ERROR", cause: { code: "EACCES" } })).toBe(
+      "EACCES",
+    );
+  });
+
+  it("code を持たない cause なら unknown を返す", () => {
+    expect(getWriteErrorCode({ type: "CONFIG_WRITE_ERROR", cause: new Error("x") })).toBe(
+      "unknown",
+    );
   });
 });
 

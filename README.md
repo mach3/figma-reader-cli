@@ -131,7 +131,7 @@ Cache files live in the first of these that applies:
 2. `$XDG_CACHE_HOME/figma-reader/`, when that variable holds an absolute path
 3. `~/.cache/figma-reader/`
 
-Nothing else depends on them, so that cache directory can be deleted at any time; the next call simply fetches again.
+Nothing else depends on them, so the default directory (the second or third location) can be deleted at any time; the next call simply fetches again. If you set `FIGMA_READER_CACHE_DIR`, delete that directory only when it is dedicated to figma-reader, since files are placed directly under it.
 
 ##### Environment variables
 

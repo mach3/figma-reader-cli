@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Result } from "neverthrow";
@@ -98,6 +99,15 @@ export function buildOutputFileName(request: CacheRequest, styles: boolean): str
 }
 
 /**
+ * --output の一時ファイル名。出力先は共有ディレクトリのこともあるため、推測できる名前
+ * （pid など）にすると、他人が先に置いたシンボリックリンクを辿って任意のファイルを上書きさせられる。
+ * ランダムな接尾辞にしたうえで、作成は必ず wx（既存なら失敗）で行う
+ */
+function buildTmpPath(absPath: string): string {
+  return `${absPath}.${randomBytes(8).toString("hex")}.tmp`;
+}
+
+/**
  * --output のディレクトリを作り、書き込み先の絶対パスを確定させる。API を呼ぶ前に使う。
  * mkdir は既存ディレクトリなら書き込めなくても成功するため、確定した名前で実際に試し書きする。
  * キャッシュも書けない環境（sandbox など）では、ここで弾かないと API の消費分が丸ごと無駄になる
@@ -124,9 +134,8 @@ export async function prepareOutputFile({
   }
 
   const absPath = join(absDir, buildOutputFileName(request, styles));
-  const tmpPath = `${absPath}.${process.pid}.tmp`;
+  const tmpPath = buildTmpPath(absPath);
   try {
-    // wx: 既存のファイルやシンボリックリンクを辿って切り詰めない
     await writeFile(tmpPath, "", { encoding: "utf-8", flag: "wx" });
   } catch (error: unknown) {
     return err({
@@ -134,8 +143,7 @@ export async function prepareOutputFile({
       message: `Cannot write to ${absPath} (${getErrnoCode(error)}); no API request was made`,
     });
   }
-  // 消せなかった空の一時ファイルは、API が成功すれば本番の書き込みが同じ名前で上書きして片付く。
-  // API が失敗した場合だけ残るが、試し書きが通った出力先で削除だけが拒否されるのは稀なので許容する
+  // 試し書きが通った出力先で削除だけが拒否されるのは稀なので、消せなかった空ファイルは許容する
   await unlink(tmpPath).catch(() => {});
   return ok(absPath);
 }
@@ -149,14 +157,19 @@ export async function writeOutputFile(
   absPath: string,
   content: string,
 ): Promise<Result<void, AppError>> {
-  const tmpPath = `${absPath}.${process.pid}.tmp`;
+  const tmpPath = buildTmpPath(absPath);
+  let created = false;
   try {
-    await writeFile(tmpPath, content, "utf-8");
+    await writeFile(tmpPath, content, { encoding: "utf-8", flag: "wx" });
+    created = true;
     await rename(tmpPath, absPath);
     return ok(undefined);
   } catch (error: unknown) {
-    // rename まで到達できなかった場合に一時ファイルを残さない
-    await unlink(tmpPath).catch(() => {});
+    // rename まで到達できなかった場合に一時ファイルを残さない。wx で作れなかった場合、
+    // その名前の実体は自分のものではないので消さない
+    if (created) {
+      await unlink(tmpPath).catch(() => {});
+    }
     return err({
       type: "CUSTOM_ERROR",
       // 同名の旧ファイルは残る。エラーを見落としたエージェントが古い内容を最新と読まないよう明示する

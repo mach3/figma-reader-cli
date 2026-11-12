@@ -1,4 +1,14 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -613,8 +623,7 @@ describe("--output のファイル操作 (実ファイル I/O)", () => {
       expect(result._unsafeUnwrap()).toBe(filePath);
       expect((await stat(join(testDir, "a", "b"))).isDirectory()).toBe(true);
       // 試し書きの一時ファイルも、本体のファイルも残さない
-      await expect(stat(`${filePath}.${process.pid}.tmp`)).rejects.toThrow();
-      await expect(stat(filePath)).rejects.toThrow();
+      expect(await readdir(join(testDir, "a", "b"))).toEqual([]);
     });
 
     it("相対ディレクトリは cwd 基準で解決する", async () => {
@@ -648,7 +657,7 @@ describe("--output のファイル操作 (実ファイル I/O)", () => {
         type: "CUSTOM_ERROR",
         message: `Cannot write to ${filePath} (EACCES); no API request was made`,
       });
-      await expect(stat(`${filePath}.${process.pid}.tmp`)).rejects.toThrow();
+      expect(await readdir(dir)).toEqual([]);
     });
   });
 
@@ -659,7 +668,7 @@ describe("--output のファイル操作 (実ファイル I/O)", () => {
 
       expect((await writeOutputFile(filePath, content)).isOk()).toBe(true);
       expect(await readFile(filePath, "utf-8")).toBe(content);
-      await expect(stat(`${filePath}.${process.pid}.tmp`)).rejects.toThrow();
+      expect(await readdir(testDir)).toEqual(["design.json"]);
     });
 
     it("既存ファイルを上書きする", async () => {
@@ -687,7 +696,21 @@ describe("--output のファイル操作 (実ファイル I/O)", () => {
         message: `Failed to write the --output file ${filePath} (EACCES); any existing file at that path was not updated`,
       });
       expect(await readFile(filePath, "utf-8")).toBe("old");
-      await expect(stat(`${filePath}.${process.pid}.tmp`)).rejects.toThrow();
+      expect(await readdir(dir)).toEqual(["design.json"]);
+    });
+
+    // 出力先が共有ディレクトリだと、推測できる一時ファイル名に他人がシンボリックリンクを置ける。
+    // 以前の名前（pid）に置かれたリンクを辿ってリンク先を上書きしないことを固定する
+    itPosix("推測できる名前に置かれたシンボリックリンクを辿らない", async () => {
+      const filePath = join(testDir, "design.json");
+      const victim = join(testDir, "victim.txt");
+      await writeFile(victim, "keep");
+      await symlink(victim, `${filePath}.${process.pid}.tmp`);
+
+      expect((await writeOutputFile(filePath, "new")).isOk()).toBe(true);
+
+      expect(await readFile(victim, "utf-8")).toBe("keep");
+      expect(await readFile(filePath, "utf-8")).toBe("new");
     });
   });
 });

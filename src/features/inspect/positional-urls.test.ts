@@ -1,4 +1,4 @@
-import { parseArgs } from "citty";
+import { type ArgsDef, parseArgs } from "citty";
 import { describe, expect, it } from "vitest";
 import exportCommand from "../export/index.js";
 import inspectCommand from "./index.js";
@@ -34,6 +34,23 @@ describe.each([
   it("宣言済みフラグの値は args._ に漏れない", () => {
     const args = parseArgs(["https://a", "--profile", "work"], argsDef);
 
+    expect(args._).toEqual(["https://a"]);
+  });
+});
+
+/**
+ * inspect の --output のパースを、実際に入っている citty に対して固定する。
+ * 値が positional に漏れると、出力先ディレクトリが URL として解釈されて Invalid Figma URL になる
+ */
+describe("inspect の --output", () => {
+  it("--output の値は args.output に入り、args._ に漏れない", () => {
+    const args = parseArgs(
+      ["https://a", "--output", "./out"],
+      // args は Resolvable 型（Promise も許す）なので、静的に定義済みであることを型に伝える
+      inspectCommand.args as ArgsDef,
+    );
+
+    expect(args.output).toBe("./out");
     expect(args._).toEqual(["https://a"]);
   });
 });

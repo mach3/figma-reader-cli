@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
-import type { AppError } from "./error.js";
+import { type AppError, getErrnoCode } from "./error.js";
 import type { FigmaNodesResponse } from "./figma-client.js";
 
 /** キャッシュヒットの古さがこの秒数を超えたら警告する（7 日） */
@@ -153,7 +153,7 @@ export function buildCacheKey(request: CacheRequest): string {
  * パス区切りや Windows の禁止文字が混ざる可能性を潰しておく。
  * 衝突しても readCache の request 照合で弾けるため、可逆である必要はない
  */
-function sanitizeFileKey(fileKey: string): string {
+export function sanitizeFileKey(fileKey: string): string {
   return fileKey.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
@@ -324,14 +324,7 @@ export function getWriteErrorCode(error: AppError): string {
   if (error.type !== "CONFIG_WRITE_ERROR") {
     return "unknown";
   }
-  // Error インスタンスに限らない。モックや別 realm から来た errno 風のオブジェクトでも code は読める
-  const { cause } = error;
-  return typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    typeof cause.code === "string"
-    ? cause.code
-    : "unknown";
+  return getErrnoCode(error.cause);
 }
 
 /**

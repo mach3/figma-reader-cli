@@ -10,6 +10,7 @@ import {
   getImages,
   parseImageFormat,
   parseScale,
+  prepareDownloadDir,
 } from "./export.js";
 
 export default defineCommand({
@@ -96,6 +97,18 @@ export default defineCommand({
       return process.exit(1);
     }
 
+    // 保存先の確認は他の検証をすべて通った後・API の直前に行う。作れない・書けない保存先で
+    // レートリミットを消費しないため。--output は --download のときしか使わない
+    let downloadDir: string | undefined;
+    if (args.download) {
+      const dirResult = await prepareDownloadDir(args.output, process.cwd());
+      if (dirResult.isErr()) {
+        outputError(args.pretty, dirResult.error);
+        return process.exit(1);
+      }
+      downloadDir = dirResult.value;
+    }
+
     const imagesResult = await getImages({
       fileKey,
       nodeIds: nodeIdsResult.value,
@@ -114,8 +127,9 @@ export default defineCommand({
     const images = alignImagesToRequest(imagesResult.value.images, nodeIdsResult.value);
 
     // ダウンロードモード
-    if (args.download) {
-      const downloadResult = await downloadImages(images, format, args.output);
+    if (downloadDir !== undefined) {
+      // 事前確認で解決した絶対パスを使う。生の args.output から作り直すと検査した値とずれうる
+      const downloadResult = await downloadImages(images, format, downloadDir);
       if (downloadResult.isErr()) {
         outputError(args.pretty, downloadResult.error);
         return process.exit(1);

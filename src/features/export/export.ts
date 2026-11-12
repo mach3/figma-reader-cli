@@ -2,8 +2,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Result } from "neverthrow";
 import { err, ok } from "neverthrow";
-import type { AppError } from "../../lib/error.js";
+import { type AppError, getErrnoCode } from "../../lib/error.js";
 import { type FigmaImagesResponse, figmaGet } from "../../lib/figma-client.js";
+import { checkOutputDir } from "../../lib/output-dir.js";
 
 const VALID_FORMATS = ["png", "svg", "pdf"] as const;
 
@@ -121,13 +122,61 @@ export async function getImages(
   return result;
 }
 
+/**
+ * --download の保存先を作り、書き込めることを確かめる。API を呼ぶ前に使う。
+ * 保存先が作れない・書けないことが API の後で分かると、レートリミットを消費したうえで
+ * 1 枚も保存できない。mkdir は既存ディレクトリなら書けなくても成功するため、試し書きまで行う
+ */
+export async function prepareDownloadDir(
+  // 型は string だが、citty は `--no-output` を false として渡してくる
+  outputDir: string | boolean,
+  cwd: string,
+): Promise<Result<string, AppError>> {
+  // 値の規則（空・`-` 始まり・`~`）は inspect と共通。以降は trim 済みの値だけを使う
+  const dirResult = checkOutputDir(outputDir);
+  if (dirResult.isErr()) {
+    return err(dirResult.error);
+  }
+
+  const absDir = path.resolve(cwd, dirResult.value);
+  try {
+    await fs.mkdir(absDir, { recursive: true });
+  } catch (error: unknown) {
+    return err({
+      type: "CUSTOM_ERROR",
+      message: `Failed to create the --output directory ${absDir} (${getErrnoCode(error)}); no API request was made`,
+    });
+  }
+
+  const probePath = path.join(absDir, `.figma-reader-write-test-${process.pid}.tmp`);
+  try {
+    // wx: 既存のファイルやシンボリックリンクを辿って切り詰めない
+    await fs.writeFile(probePath, "", { flag: "wx" });
+  } catch (error: unknown) {
+    return err({
+      type: "CUSTOM_ERROR",
+      message: `Cannot write to the --output directory ${absDir} (${getErrnoCode(error)}); no API request was made`,
+    });
+  }
+  await fs.unlink(probePath).catch(() => {});
+  return ok(absDir);
+}
+
 /** 画像 URL からファイルをダウンロードして保存する。失敗したノードはスキップして続行する */
 export async function downloadImages(
   images: Record<string, string | null>,
   format: ImageFormat,
   outputDir: string,
 ): Promise<Result<DownloadSummary, AppError>> {
-  await fs.mkdir(outputDir, { recursive: true });
+  // 通常は prepareDownloadDir で作成済み。それでも失敗しうるので、例外で落とさず機械可読なエラーにする
+  try {
+    await fs.mkdir(outputDir, { recursive: true });
+  } catch (error: unknown) {
+    return err({
+      type: "CUSTOM_ERROR",
+      message: `Failed to create the --output directory ${outputDir} (${getErrnoCode(error)})`,
+    });
+  }
 
   const entries = Object.entries(images);
   const results = await Promise.allSettled(

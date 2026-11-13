@@ -12,7 +12,7 @@ AI エージェントがサブプロセスとして実行し、正確で必要�
 
 ## インストール
 
-**Node.js 22.12 以降**が必要です。Node 18 / 20 は EOL のためサポート対象外です。
+**Node.js 24.14 以降**が必要です。[sandbox の中で使う場合](#sandbox-の中で使う場合)で説明するプロキシ対応が、このバージョンで追加された標準 API に依存するためです。
 
 サポート対象プラットフォームは **macOS / Linux** です。Windows はベストエフォートで、動作は妨げませんが正式なサポート対象ではなく、以下の既知の差異は解消しません。
 
@@ -173,27 +173,7 @@ Figma API のレートリミットは回復までに数時間かかるため、`
 
 どちらの変数も読むのは `inspect` だけです。不正な値のとき `inspect` は機械可読なエラーで終了しますが、他のコマンドには影響しません。
 
-##### sandbox の中で使う場合
-
-エージェントの sandbox 環境では、ホームディレクトリへの書き込みが拒否されることがあります。たとえば Claude Code の sandbox は、既定では作業ディレクトリとセッションごとの一時ディレクトリにしか書き込みを許さないため、`~/.cache/figma-reader/` に書き込めません。するとキャッシュが溜まらず、毎回 API リクエストを消費し、`_cache.note` に書き込み失敗が表示されます。
-
-対処方法は次のいずれかです:
-
-- sandbox でキャッシュディレクトリへの書き込みを許可する。Claude Code では、user settings（`~/.claude/settings.json`）の `sandbox.filesystem.allowWrite` に追加します。ここに書いたパスは各プロジェクトの設定とマージされるため、全プロジェクトで有効になります:
-
-  ```json
-  { "sandbox": { "filesystem": { "allowWrite": ["~/.cache/figma-reader"] } } }
-  ```
-
-  これは既定の保存先です。`XDG_CACHE_HOME` や `FIGMA_READER_CACHE_DIR` を設定している場合は、代わりに `_cache.note` に表示されたディレクトリを許可してください。
-
-- `FIGMA_READER_CACHE_DIR` を、sandbox が書き込みを許している絶対パスに向ける。
-
-- `sandbox.excludedCommands` に `figma-reader` を追加し、sandbox の外で実行させる。選ぶ前に次の制約を確認してください:
-  - パイプ・リダイレクト・`&&`・`;` を含むコマンドには除外が適用されません。エージェントは出力を `--output` で保存し、`figma-reader` の呼び出しを単独で実行する必要があります。
-  - `auth` を含む figma-reader 全体が、ファイルシステムとネットワークの両方で sandbox の保護なしに動きます。`--output` は、ユーザーアカウントが書き込める任意の場所にディレクトリとファイルを作れます。プロンプトインジェクションでエージェントが誘導された場所も例外ではありません。上の 2 つで足りる場合はそちらを選んでください。
-
-詳しくは [Claude Code の sandbox のドキュメント](https://code.claude.com/docs/en/sandboxing.md)を参照してください。
+キャッシュディレクトリに書き込めない場合（エージェントの sandbox ではよく起きます）は、[sandbox の中で使う場合](#sandbox-の中で使う場合)を参照してください。
 
 ### `export` - 画像エクスポート
 
@@ -257,6 +237,49 @@ figma-reader install --dest .windsurf/skills/figma-reader-cli
 | `--agent <name>` | インストール対象のエージェント（`claude`, `codex`, `antigravity`） | `claude` |
 | `--dest <path>` | 任意のパスにインストール（`--agent` とは併用不可） | - |
 | `--pretty` | 人間向けのテキスト形式で出力 | `false` |
+
+## sandbox の中で使う場合
+
+エージェントの sandbox は、ネットワークとファイルシステムをそれぞれ別に制限します。figma-reader はどちらの影響も受けます。
+
+### ネットワーク
+
+Node の組み込み `fetch` は、既定ではプロキシ環境変数を読みません。そのため何も対処していない CLI は、プロキシを必須とする sandbox の中で `A network error occurred` で失敗します。figma-reader は起動時にプロキシを有効化するため、追加の設定は不要です。
+
+使われるのは Node 自身が読む変数、すなわち `HTTP_PROXY` / `HTTPS_PROXY` とその小文字形だけです。**`ALL_PROXY` と SOCKS プロキシは Node が読みません**。これらだけで構成された sandbox には対応できません。
+
+到達できる必要があるホストは 2 つです:
+
+- `api.figma.com` — すべてのコマンドで使います。Figma からコピーする `www.figma.com` の URL とは別ホストなので、デザイン URL から作った許可リストではカバーされません
+- `export --download` が使う画像ホスト。Images API が返すのは `api.figma.com` ではなくストレージホスト（`figma-alpha-api.s3.us-west-2.amazonaws.com` など）の署名付き URL で、ダウンロードはそちらへ行きます。`api.figma.com` だけを許可すると、`export` は URL を返せてもダウンロードに失敗します
+
+失敗したときは原因のエラーコードが添えられます（例: `A network error occurred (ENOTFOUND)`）。`export --download` だけは形式が異なり、画像ごとに `failures[]` に並び、コードは `reason` に入ります。
+
+逆に Figma への通信をプロキシに通したくない場合は、`NO_PROXY` に `api.figma.com` を追加してください。
+
+**Node 22.21 以降 24.14 未満**では起動時の有効化ができません。環境変数 `NODE_USE_ENV_PROXY=1` を設定すると同じ効果が得られます。Node はこの変数をプロセス起動時にしか読まないため、コマンドを実行する前に設定しておく必要があります。
+
+### ファイル書き込み
+
+エージェントの sandbox 環境では、ホームディレクトリへの書き込みが拒否されることがあります。たとえば Claude Code の sandbox は、既定では作業ディレクトリとセッションごとの一時ディレクトリにしか書き込みを許さないため、`~/.cache/figma-reader/` に書き込めません。するとキャッシュが溜まらず、毎回 API リクエストを消費し、`_cache.note` に書き込み失敗が表示されます。
+
+対処方法は次のいずれかです:
+
+- sandbox でキャッシュディレクトリへの書き込みを許可する。Claude Code では、user settings（`~/.claude/settings.json`）の `sandbox.filesystem.allowWrite` に追加します。ここに書いたパスは各プロジェクトの設定とマージされるため、全プロジェクトで有効になります:
+
+  ```json
+  { "sandbox": { "filesystem": { "allowWrite": ["~/.cache/figma-reader"] } } }
+  ```
+
+  これは既定の保存先です。`XDG_CACHE_HOME` や `FIGMA_READER_CACHE_DIR` を設定している場合は、代わりに `_cache.note` に表示されたディレクトリを許可してください。
+
+- `FIGMA_READER_CACHE_DIR` を、sandbox が書き込みを許している絶対パスに向ける。
+
+- `sandbox.excludedCommands` に `figma-reader` を追加し、sandbox の外で実行させる。選ぶ前に次の制約を確認してください:
+  - パイプ・リダイレクト・`&&`・`;` を含むコマンドには除外が適用されません。エージェントは出力を `--output` で保存し、`figma-reader` の呼び出しを単独で実行する必要があります。
+  - `auth` を含む figma-reader 全体が、ファイルシステムとネットワークの両方で sandbox の保護なしに動きます。`--output` は、ユーザーアカウントが書き込める任意の場所にディレクトリとファイルを作れます。プロンプトインジェクションでエージェントが誘導された場所も例外ではありません。上の 2 つで足りる場合はそちらを選んでください。
+
+詳しくは [Claude Code の sandbox のドキュメント](https://code.claude.com/docs/en/sandboxing.md)を参照してください。
 
 ## AI エージェント連携
 

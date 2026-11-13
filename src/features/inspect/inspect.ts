@@ -194,10 +194,11 @@ export function buildOutputWriteHint({
 }): string {
   // staleEntryRemains が true のとき cached は必ず false なので、先に判定する。
   // --refresh なしでこの状態になるのは古いエントリを読めなかった場合だけなので、再実行しても
-  // それは返らず API を呼ぶ。「古い応答が無料で返る」は --refresh 付きのときに限る
+  // それは返らず API を呼ぶ。--refresh 付きでも読み取りは試していないので、古いエントリが
+  // 読めるとは限らない。「無料で返る」と断定せず、読めなければ API を消費することも伝える
   const cost =
     staleEntryRemains && refresh
-      ? "The response was not cached, and an older cached response could not be removed. Re-running without --refresh returns that stale response without an API request; re-running with --refresh spends another request."
+      ? "The response was not cached, and an older cached response could not be removed. Re-running without --refresh may return that stale response without an API request; if it cannot be read, the re-run spends another request, as does re-running with --refresh."
       : !cached
         ? "The response was not cached, so re-running will spend another API request."
         : refresh

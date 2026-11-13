@@ -558,8 +558,13 @@ describe("buildOutputWriteHint", () => {
     buildOutputWriteHint({ cached, refresh, staleEntryRemains });
 
   // 「再実行は有料」とだけ言うと、--refresh なしの再実行が古い応答を無料で返すことが伝わらない
-  it("--refresh 付きで古いエントリが残っていれば、--refresh なしの再実行が古い応答を返すと伝える", () => {
-    expect(hint(false, true, true)).toContain("stale");
+  // 古いエントリが読めるとは限らないので、無料で返ると断定せず、API を消費しうることも伝える
+  it("--refresh 付きで古いエントリが残っていれば、古い応答が返るかもしれず API を消費しうると伝える", () => {
+    const text = hint(false, true, true);
+
+    expect(text).toContain("may return that stale response");
+    expect(text).toContain("spends another request");
+    expect(text).not.toContain("returns that stale response");
   });
 
   // --refresh なしでこの状態になるのは古いエントリを読めなかった場合だけ。再実行しても API を呼ぶ

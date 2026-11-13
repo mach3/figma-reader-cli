@@ -143,30 +143,42 @@ An id the token cannot resolve comes back as `null` rather than failing the whol
 
 **When you need vector shapes, `export --format svg` is almost always the right tool, not `--geometry`.** Export returns a finished SVG (boolean operations resolved, transforms applied, usable as a file). `--geometry` returns raw path coordinates (`fillGeometry` / `strokeGeometry`) that you must interpret yourself — use it only when you need path data as code, e.g. generating `clip-path: polygon(...)` values or Canvas drawing commands.
 
-When you do use `--geometry`, scope it down in two steps: first run `--styles` on the parent to find the target vector node's id, then run `--geometry` against that node's own URL (`?node-id=<id>`). Never fetch a whole frame with `--geometry`. Redirect to a file and extract with `jq` as usual — e.g. `jq '.. | objects | select(.name? == "Logo") | .fillGeometry'`.
+When you do use `--geometry`, scope it down in two steps: first run `--styles` on the parent to find the target vector node's id, then run `--geometry` against that node's own URL (`?node-id=<id>`). Never fetch a whole frame with `--geometry`. Save it with `--output` and extract with `jq` as usual — e.g. `jq '.. | objects | select(.name? == "Logo") | .fillGeometry'`.
 
 **When implementing UI from a design, always use `--styles`.** It removes noise fields (`blendMode`, `constraints`, `scrollBehavior`, `absoluteRenderBounds`, etc.) and keeps everything needed to reproduce styles: `fills`, `strokes`, `strokeWeight`, `cornerRadius`, `effects`, `opacity`, Auto Layout properties, text styles, and `boundVariables`.
 
-**Save the output to a file, then read it selectively with `jq`.** Piping large JSON directly into your context risks silent truncation (tool output limits) — styles of later/deeper nodes get cut off without warning. Save to your session's temporary working directory (scratchpad; use `mktemp -d` if none). Do not use a fixed path like `/tmp/design.json` — fixed names get silently overwritten across sessions and you may read stale data. Include the node id in the filename.
+**Save the output to a file, then read it selectively with `jq`.** Piping large JSON directly into your context risks silent truncation (tool output limits) — styles of later/deeper nodes get cut off without warning. Save to your session's temporary working directory (scratchpad; if there is none, run `mktemp -d` once and keep using the absolute path it printed). Do not use a shared fixed directory like `/tmp` — other sessions write there too and you may read stale data.
+
+**Save with `--output <dir>`, not with a shell redirect (`>`).**
+
+- **The CLI chooses the file name.** stdout carries only a short JSON: `success`, the absolute `path` of the file, and the same `_cache` and `_request` objects that are in the file. Use `path` exactly as printed. Do not guess the name, and do not glob the directory for it.
+- Read `_cache` on that stdout as usual (age, `enabled`, `note`); diff `_request.nodeIds` against the saved file (recipe below).
+- If writing fails, the command exits 1 and any older file with the same name is left untouched — do not read it as fresh. Check the exit code, and check `_cache.fetchedAt` in whatever you read.
+- Run a `figma-reader` command that uses `--output` on its own. Do not chain it with `&&` or `;`, and do not pipe it: the user's sandbox may exempt `figma-reader` only when it runs as a plain command.
+- Shell variables do not carry over between separate tool calls. In the recipes, `$WORKDIR` stands for the absolute path of your working directory: write that path out literally. An empty `$WORKDIR` becomes `--output ""`, which is rejected.
+- Write `--output <dir>` with a space, never `--output=<dir>`. A CLI too old to know `inspect --output` silently ignores the `=` form and prints the whole JSON to stdout; with the space form it stops with `Invalid Figma URL` instead.
+- If `Invalid Figma URL` names your output directory, the installed CLI predates `inspect --output`. Ask the user to update `figma-reader`.
+- `--output` takes a directory; a value ending in `.json` is rejected, and so are `~` and `~/...` (not expanded — write the absolute path). A directory that cannot be created or written to is rejected before any API call. If a write still fails afterwards, follow the `hint` (it says whether a re-run spends another request) and re-run with `--output` pointing to a directory you can write to, such as inside the working directory. Do not fall back to `>`.
 
 This is about *your* `jq` scratch file, not about re-fetching. Re-running `inspect` on the same node is free (cache hit) — unless `_cache.enabled` is `false` or the cache could not be written, in which case a re-run costs a request (or, if the note says an older response could not be removed, may return that stale one) — so re-run it rather than reaching for a file some earlier session left behind. Staleness of the design data itself is now reported by the CLI in `_cache` — see hard rule 8.
 
 ```bash
-# 0. Working directory: prefer your session's scratchpad; fall back to mktemp
-WORKDIR=$(mktemp -d)
+# 0. Working directory: your session's scratchpad. If there is none, run `mktemp -d` once
+#    and keep using the absolute path it printed. $WORKDIR below stands for that absolute
+#    path — write it out literally in each call; shell variables do not survive between calls.
 
-# 1. Save (filename includes the node id)
-figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2" --styles > "$WORKDIR/design-1-2.json"
+# 1. Save (the CLI names the file; read its "path" from stdout)
+figma-reader inspect "https://www.figma.com/design/XXXXX/File?node-id=1:2" --styles --output "$WORKDIR"
 
 # 2. Structure overview (name/type tree) — select on id+name+type so paint/effect
 #    objects (which also have a "type" key but no id/name) don't pollute the list
-jq '[.. | objects | select(.id? and .name? and .type?) | {id, name, type}]' "$WORKDIR/design-1-2.json"
+jq '[.. | objects | select(.id? and .name? and .type?) | {id, name, type}]' "<path from stdout>"
 
 # 3. Style values for every node — check these against your implementation
-jq '[.. | objects | select(.id? and .name? and .type?) | {name, type, fills, strokes, strokeWeight, cornerRadius, effects, opacity} | with_entries(select(.value != null))]' "$WORKDIR/design-1-2.json"
+jq '[.. | objects | select(.id? and .name? and .type?) | {name, type, fills, strokes, strokeWeight, cornerRadius, effects, opacity} | with_entries(select(.value != null))]' "<path from stdout>"
 
 # 4. Single node by name
-jq '.. | objects | select(.name? == "CardHeader")' "$WORKDIR/design-1-2.json"
+jq '.. | objects | select(.name? == "CardHeader")' "<path from stdout>"
 ```
 
 ### Export
@@ -257,7 +269,7 @@ All commands output JSON by default (machine-readable). Use `--pretty` only when
 
 ```bash
 # Ids you asked for that did not come back. Empty array means nothing was lost.
-jq '._request.nodeIds - (.nodes | with_entries(select(.value != null)) | keys)' "$WORKDIR/design-1-2.json"
+jq '._request.nodeIds - (.nodes | with_entries(select(.value != null)) | keys)' "<path from stdout>"
 ```
 
 **`lastModified` is the value as of `fetchedAt`, not the current state of the Figma file.** On a cache hit it is frozen at whatever it was when the data was fetched, so comparing it across runs will never tell you the design changed. It is not a freshness check.
@@ -285,7 +297,7 @@ A component named `state=default` (or `size=lg`, `variant=outline`) is one cell 
 jq '.nodes[] | select(. != null) | {
   sets: (.componentSets | map_values(.name)),
   variants: (.components | with_entries(select(.value.componentSetId)) | map_values({name, componentSetId}))
-}' "$WORKDIR/design-1-2.json"
+}' "<path from stdout>"
 ```
 
 ```json
@@ -295,7 +307,7 @@ jq '.nodes[] | select(. != null) | {
 }
 ```
 
-Do not use `--depth` to shrink output for implementation work: it drops child nodes entirely, and colors/borders live on leaf nodes. Use `--styles` + file redirect + `jq` instead. `--depth` is only for a quick structure overview.
+Do not use `--depth` to shrink output for implementation work: it drops child nodes entirely, and colors/borders live on leaf nodes. Use `--styles` + `--output` + `jq` instead. `--depth` is only for a quick structure overview.
 
 **Do not run `--depth` against a page/canvas node.** Walking a whole page is the most expensive `/v1/files` request available, and the motive is usually speculative ("does a desktop variant exist?"). It is a common way to lose the files budget before the real fetch has started. If you need to know whether some frame exists, ask the user — they have the file open.
 
@@ -390,7 +402,7 @@ Common errors and actions:
   2. If the URL is correct, the active profile likely lacks access: run `figma-reader auth list` and retry with `--profile <name>` using a different profile
   3. If all profiles fail, ask the user to check file permissions or run `figma-reader auth login`
 - **Profile not found** (from `auth switch` or `--profile`): The error message lists saved profile names; run `figma-reader auth list` to check
-- **Output too large**: Use `--styles` and redirect to a file, then extract with `jq` (see Inspect section). Do NOT lower `--depth` — it silently discards leaf-node styles
+- **Output too large**: Use `--styles` and save to a file with `--output`, then extract with `jq` (see Inspect section). Do NOT lower `--depth` — it silently discards leaf-node styles
 
 ## Choosing an export format
 
@@ -405,19 +417,20 @@ Two API calls. A third is a deliberate decision, not a reflex — see the note o
 ```bash
 # 0. PREFLIGHT — collect every Figma URL in your input and group them by file key.
 #    Here the user gave two frames of the same file, so they go in one call. No API call.
-WORKDIR=$(mktemp -d)
+#    $WORKDIR below stands for the absolute path of your working directory (see the
+#    Inspect section) — write that path out literally in each call.
 
 # 1. CALL 1 — structure and styles for every screen you were given, saved to a file
 figma-reader inspect \
   "https://www.figma.com/design/XXXXX/File?node-id=1-2" \
   "https://www.figma.com/design/XXXXX/File?node-id=8-40" \
-  --styles > "$WORKDIR/design-1-2.json"
+  --styles --output "$WORKDIR"
 
 # 2. Confirm nothing was silently dropped, then decide everything you need from the
 #    saved JSON before spending call 2: every vector node id you will have to export.
 #    No API call.
-jq '._request.nodeIds - (.nodes | with_entries(select(.value != null)) | keys)' "$WORKDIR/design-1-2.json"
-jq '[.. | objects | select(.type? == "VECTOR" or .type? == "INSTANCE") | {id, name, type}]' "$WORKDIR/design-1-2.json"
+jq '._request.nodeIds - (.nodes | with_entries(select(.value != null)) | keys)' "<path from stdout>"
+jq '[.. | objects | select(.type? == "VECTOR" or .type? == "INSTANCE") | {id, name, type}]' "<path from stdout>"
 
 # 3. CALL 2 — every vector you need, in one request
 figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" \
@@ -457,10 +470,10 @@ figma-reader export "https://www.figma.com/design/XXXXX/Icons?node-id=10:1" --id
 ## Example: Screenshot a Figma design
 
 ```bash
-figma-reader export "<figma-url>" --format png --scale 2 --download --output "$(mktemp -d)"
+figma-reader export "<figma-url>" --format png --scale 2 --download --output "$WORKDIR"
 ```
 
-Prefer your session's scratchpad directory over `mktemp -d` when one is available.
+`$WORKDIR` is the absolute path of your working directory, written out literally (see the Inspect section): your session's scratchpad, or a directory you created once with `mktemp -d`.
 
 Read the downloaded image with the Read tool to visually inspect the design.
 

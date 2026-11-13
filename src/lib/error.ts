@@ -79,3 +79,14 @@ export function outputError(pretty: boolean, error: AppError, hint?: string): vo
     console.error(JSON.stringify(json));
   }
 }
+
+/** fs 操作で投げられた値から errno のコード（EPERM など）を取り出す。取り出せなければ "unknown" */
+export function getErrnoCode(cause: unknown): string {
+  // Error インスタンスに限らない。モックや別 realm から来た errno 風のオブジェクトでも code は読める
+  return typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    typeof cause.code === "string"
+    ? cause.code
+    : "unknown";
+}

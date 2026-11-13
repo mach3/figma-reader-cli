@@ -87,6 +87,9 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 
 # Several nodes of the same file in a single API request — quote each URL separately
 figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "https://www.figma.com/design/XXXXX/FileName?node-id=10-99"
+
+# Save the JSON to a file in ./design instead of stdout (no shell redirect needed)
+figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --styles --output ./design
 ```
 
 All URLs must belong to the same file. A Figma request can address only one file, so a mixed set exits with an error **before** any API call and reports which URL belongs to which file key:
@@ -104,6 +107,19 @@ A URL's `node-id` also accepts a comma-separated list (`?node-id=1-2,10-99`), wh
 | `--depth <N>` | Limit node tree depth (positive integer) | No limit |
 | `--geometry` | Include vector data (path information) | `false` |
 | `--refresh` | Bypass the local cache and fetch from the Figma API | `false` |
+| `--output <dir>` | Write the JSON output to a file in this directory instead of stdout. The directory is created if missing. Cannot be combined with `--pretty` | - |
+
+#### Saving the output to a file
+
+With `--output <dir>`, the JSON that would have gone to stdout is written byte for byte to a file in `<dir>`, and stdout gets only a short JSON with the file's absolute path and the same `_cache` and `_request` objects:
+
+```json
+{ "success": true, "path": "/abs/path/design/ABC123_1-2_3f9ac2d14b7e0a91_styles.json", "_cache": { "hit": false, "cached": true, "...": "..." }, "_request": { "nodeIds": ["1:2"] } }
+```
+
+The CLI chooses the file name, so read it from `path`: `<fileKey>_<first node id>[+<more>]_<hash>[_styles].json`. The first node id is the first of `_request.nodeIds` (sorted, not in the order you passed the URLs), with `:` and `;` turned into `-` and cut to 32 characters; `+N` counts the other nodes; the hash distinguishes `--depth` and `--geometry`; `_styles` marks `--styles`. The same request written to the same directory replaces the earlier file.
+
+These are rejected **before** any API call: an empty value or one starting with `-`, `~` or a value starting with `~/` (it is not expanded; pass an absolute or relative path), a value ending in `.json` (`--output` takes a directory, not a file name), `--pretty`, and a directory that cannot be created or written to. If the file still cannot be written after the API call, `inspect` prints a JSON error to stderr, writes nothing to stdout, and exits 1; any existing file at that path is left as it was, and the `hint` says whether re-running will spend another API request.
 
 #### Caching
 
@@ -160,7 +176,11 @@ To fix this, either:
 
 - Or set `FIGMA_READER_CACHE_DIR` to an absolute path that the sandbox already allows writing to.
 
-Adding `figma-reader` to `sandbox.excludedCommands` is not recommended: the exclusion does not apply to commands that contain a redirect or a pipe, which is how agents usually save `inspect` output. See the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing.md) for details.
+- Or add `figma-reader` to `sandbox.excludedCommands`, so that it runs outside the sandbox. Keep these limits in mind before choosing this:
+  - The exclusion does not apply to a command line that contains a pipe, a redirect, `&&`, or `;`. Agents must save output with `--output` and run each `figma-reader` call on its own.
+  - All of figma-reader, `auth` included, then runs without the sandbox's protection for both the file system and the network. `--output` can create directories and files anywhere your user account can write — including a location an agent was steered to by a prompt injection. Prefer the two options above when they are enough.
+
+See the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing.md) for details.
 
 ### `export` - Export images
 
@@ -190,7 +210,7 @@ Like `inspect`, `export` accepts several URLs and requires them to belong to the
 | `--scale <N>` | Scale (0.01-4, png/pdf only) | `1` |
 | `--ids <ids>` | Additional node IDs (comma-separated) | - |
 | `--download` | Download as files | `false` |
-| `--output <dir>` | Download directory | `.` |
+| `--output <dir>` | Download directory. With `--download`, it is checked **before** any API call: an empty value, one starting with `-`, and `~` or `~/...` (not expanded) are rejected, and the directory is created and test-written. If any of that fails, the command exits 1 without spending a request | `.` |
 | `--pretty` | Output in human-readable text format | `false` |
 
 ### `install` - Install skill files for AI agents

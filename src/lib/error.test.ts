@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type AppError, formatError, outputError } from "./error.js";
+import { type AppError, formatError, getErrnoCode, outputError } from "./error.js";
 
 const multipleFileKeys: AppError = {
   type: "MULTIPLE_FILE_KEYS",
@@ -61,5 +61,16 @@ describe("outputError", () => {
     outputError(false, { type: "INVALID_URL", message: "Malformed URL" });
 
     expect(JSON.parse(spy.mock.calls[0][0] as string)).not.toHaveProperty("groups");
+  });
+});
+
+describe("getErrnoCode", () => {
+  it("code 文字列を持つオブジェクトならその値を返す", () => {
+    expect(getErrnoCode(Object.assign(new Error("x"), { code: "ENOSPC" }))).toBe("ENOSPC");
+    expect(getErrnoCode({ code: "EACCES" })).toBe("EACCES");
+  });
+
+  it.each([new Error("x"), null, "EPERM", { code: 1 }])("%o なら unknown を返す", (cause) => {
+    expect(getErrnoCode(cause)).toBe("unknown");
   });
 });

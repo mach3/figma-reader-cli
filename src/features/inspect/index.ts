@@ -3,6 +3,7 @@ import {
   type CacheMeta,
   formatAge,
   formatCacheWriteHint,
+  normalizeRequest,
   resolveCacheSettings,
   STALE_WARNING_SECONDS,
 } from "../../lib/cache.js";
@@ -11,7 +12,16 @@ import { outputError } from "../../lib/error.js";
 import type { FigmaNode, FigmaNodesResponse } from "../../lib/figma-client.js";
 import { parseFigmaUrls } from "../../lib/figma-url.js";
 import { filterStylesResponse } from "./filter-styles.js";
-import { checkStylesConflict, getNodesWithCache, hasCachedNodes, parseDepth } from "./inspect.js";
+import {
+  buildOutputWriteHint,
+  checkOutputOption,
+  checkStylesConflict,
+  getNodesWithCache,
+  hasCachedNodes,
+  parseDepth,
+  prepareOutputFile,
+  writeOutputFile,
+} from "./inspect.js";
 
 export default defineCommand({
   meta: {
@@ -52,6 +62,11 @@ export default defineCommand({
       default: false,
       description: "Bypass the local cache and fetch from the Figma API",
     },
+    output: {
+      type: "string",
+      description:
+        "Write the JSON output to a file in this directory instead of stdout (created if missing). The CLI chooses the file name; stdout then gets a short JSON with its path, _cache and _request. Cannot be combined with --pretty",
+    },
     profile: {
       type: "string",
       description:
@@ -67,6 +82,13 @@ export default defineCommand({
     });
     if (conflictResult.isErr()) {
       outputError(false, conflictResult.error);
+      return process.exit(1);
+    }
+
+    // --output も --pretty と併用できないため、エラーは常に JSON で返す
+    const outputOptionResult = checkOutputOption({ output: args.output, pretty: args.pretty });
+    if (outputOptionResult.isErr()) {
+      outputError(false, outputOptionResult.error);
       return process.exit(1);
     }
 
@@ -109,6 +131,25 @@ export default defineCommand({
       cache: cacheResult.value,
     };
 
+    // 出力先の準備は、他の検証をすべて通った後・API の直前に行う。検証エラーで終わる実行に
+    // ディレクトリを残さず、書けない出力先ではレートリミットを消費する前に止めるため
+    let outputPath: string | undefined;
+    if (args.output !== undefined) {
+      const prepareResult = await prepareOutputFile({
+        // checkOutputOption は trim 後の値で検査している。生の値を渡すと ` out` のような
+        // 前後に空白を含む名前のディレクトリができてしまう
+        dir: args.output.trim(),
+        request: normalizeRequest(nodesOptions),
+        styles: args.styles,
+        cwd: process.cwd(),
+      });
+      if (prepareResult.isErr()) {
+        outputError(false, prepareResult.error);
+        return process.exit(1);
+      }
+      outputPath = prepareResult.value;
+    }
+
     const nodesResult = await getNodesWithCache({ ...nodesOptions, refresh: args.refresh });
 
     if (nodesResult.isErr()) {
@@ -147,20 +188,42 @@ export default defineCommand({
 
     if (args.pretty) {
       formatNodesResponse(response, meta, request.nodeIds);
-    } else {
-      console.log(
-        JSON.stringify({
-          _cache: meta,
-          // 要求した node-id をエコーする。Figma は解決できない id を null で返すことも
-          // キーごと落とすこともあり、後者だと nodes を見るだけでは欠落に気づけない。
-          // 複数ノードをまとめて取るほど部分欠落が黙って通る確率が上がる。
-          // 値は normalizeRequest 済み（重複除去・辞書順ソート）なので引数の順とは対応しない。
-          // nodes のキーとの集合比較に使うものであって、URL との位置対応には使えない
-          _request: { nodeIds: request.nodeIds },
-          ...(args.styles ? filterStylesResponse(response) : response),
-        }),
-      );
+      return;
     }
+
+    // 要求した node-id をエコーする。Figma は解決できない id を null で返すことも
+    // キーごと落とすこともあり、後者だと nodes を見るだけでは欠落に気づけない。
+    // 複数ノードをまとめて取るほど部分欠落が黙って通る確率が上がる。
+    // 値は normalizeRequest 済み（重複除去・辞書順ソート）なので引数の順とは対応しない。
+    // nodes のキーとの集合比較に使うものであって、URL との位置対応には使えない
+    const requestEcho = { nodeIds: request.nodeIds };
+    // stdout とファイルで同じ文字列を使い、--output の有無で中身がずれないようにする
+    const body = JSON.stringify({
+      _cache: meta,
+      _request: requestEcho,
+      ...(args.styles ? filterStylesResponse(response) : response),
+    });
+
+    if (outputPath === undefined) {
+      console.log(body);
+      return;
+    }
+
+    // console.log と同じく末尾に改行を付け、`> file` で保存した場合とバイト単位で揃える
+    const writeResult = await writeOutputFile(outputPath, `${body}\n`);
+    if (writeResult.isErr()) {
+      outputError(
+        false,
+        writeResult.error,
+        buildOutputWriteHint({ cached: meta.cached, refresh: args.refresh, staleEntryRemains }),
+      );
+      return process.exit(1);
+    }
+    // _cache と _request も載せる。古いキャッシュの hit や書き込み失敗の note、
+    // 部分欠落の手がかりは、エージェントがファイルを開かなくても目に入る必要がある
+    console.log(
+      JSON.stringify({ success: true, path: outputPath, _cache: meta, _request: requestEcho }),
+    );
   },
 });
 

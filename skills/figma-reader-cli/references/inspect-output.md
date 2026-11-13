@@ -21,6 +21,17 @@ There is no expiry, so a cache hit can be arbitrarily old. Report `ageSeconds` t
 
 **`lastModified` (top level) is the value as of `fetchedAt`**, not the current state of the file. On a cache hit it does not move even when the design has changed, so it cannot be used as a freshness check — use `_cache` for that.
 
+## Output saved with `--output`
+
+With `--output <dir>`, the CLI writes a file in `<dir>` that holds exactly the JSON described in this reference — the same bytes stdout would have carried. stdout then carries only a short JSON, so do not run `jq .nodes` on it:
+
+- **success**: `true` once the file has been written
+- **path**: absolute path of the written file. The CLI chooses the name; use this value as is
+- **_cache**: identical to `_cache` in the file (see above)
+- **_request**: identical to `_request` in the file; diff `nodeIds` against the resolved `nodes` entries in the file
+
+When the file cannot be written, nothing is printed to stdout; a JSON error goes to stderr, the command exits 1, and any existing file at that path is left as it was.
+
 ## Node Tree (`nodes`)
 
 Each node contains the following information:

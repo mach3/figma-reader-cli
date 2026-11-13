@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseFigmaUrls } from "../../lib/figma-url.js";
 import {
@@ -7,11 +8,13 @@ import {
   getImages,
   parseImageFormat,
   parseScale,
+  prepareDownloadDir,
 } from "./export.js";
 
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
   writeFile: vi.fn(),
+  unlink: vi.fn(() => Promise.resolve()),
 }));
 
 describe("parseImageFormat", () => {
@@ -192,9 +195,112 @@ describe("getImages", () => {
   });
 });
 
+// 期待値も path.resolve で組み立てる。直書きの POSIX パスは、Windows ではドライブレター付きの
+// パスに解決されるため一致しない（サポート対象外ではなくベストエフォートなので CI で落とさない）
+describe("prepareDownloadDir", () => {
+  const errno = (code: string) => Object.assign(new Error(code), { code });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("保存先を作り、試し書きして消したうえで絶対パスを返す", async () => {
+    const fs = await import("node:fs/promises");
+
+    const result = await prepareDownloadDir("out", "/work");
+
+    expect(result._unsafeUnwrap()).toBe(resolve("/work", "out"));
+    expect(fs.mkdir).toHaveBeenCalledWith(resolve("/work", "out"), { recursive: true });
+    const [probePath] = vi.mocked(fs.writeFile).mock.calls[0];
+    expect(fs.unlink).toHaveBeenCalledWith(probePath);
+  });
+
+  // 引用符で囲まれた ~ はシェルが展開せず、通すと cwd に `~` というディレクトリが作られる
+  it.each(["~/icons", "~", " ~/x"])(
+    "%o は ~ を展開しない旨のエラーを返し、何も作らない",
+    async (dir) => {
+      const fs = await import("node:fs/promises");
+
+      const error = (await prepareDownloadDir(dir, "/work"))._unsafeUnwrapErr();
+
+      expect(error.type === "CUSTOM_ERROR" && error.message).toContain(
+        '--output does not expand "~"',
+      );
+      expect(fs.mkdir).not.toHaveBeenCalled();
+    },
+  );
+
+  // `--no-output` は false、`--output --pretty` は "--pretty" として届く
+  it.each([false, "--pretty", ""])(
+    "%o はディレクトリなしとしてエラーを返し、何も作らない",
+    async (dir) => {
+      const fs = await import("node:fs/promises");
+
+      expect((await prepareDownloadDir(dir, "/work"))._unsafeUnwrapErr()).toEqual({
+        type: "CUSTOM_ERROR",
+        message: "--output requires a directory",
+      });
+      expect(fs.mkdir).not.toHaveBeenCalled();
+    },
+  );
+
+  it("前後の空白を除いた値で保存先を解決する", async () => {
+    expect((await prepareDownloadDir(" out ", "/work"))._unsafeUnwrap()).toBe(
+      resolve("/work", "out"),
+    );
+  });
+
+  // wx で作るので、同名の既存ファイルやシンボリックリンクを辿って切り詰めない
+  it("試し書きは新規作成のみのフラグで行う", async () => {
+    const fs = await import("node:fs/promises");
+
+    await prepareDownloadDir("out", "/work");
+
+    expect(vi.mocked(fs.writeFile).mock.calls[0][2]).toEqual({ flag: "wx" });
+  });
+
+  it("保存先を作れなければ、API を呼ばなかった旨のエラーを返す", async () => {
+    const fs = await import("node:fs/promises");
+    vi.mocked(fs.mkdir).mockRejectedValueOnce(errno("EEXIST"));
+
+    const result = await prepareDownloadDir("/work/file", "/work");
+
+    expect(result._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: `Failed to create the --output directory ${resolve("/work/file")} (EEXIST); no API request was made`,
+    });
+  });
+
+  // mkdir は既存ディレクトリなら書けなくても成功する。試し書きで API 前に止める
+  it("保存先に書けなければ、API を呼ばなかった旨のエラーを返す", async () => {
+    const fs = await import("node:fs/promises");
+    vi.mocked(fs.writeFile).mockRejectedValueOnce(errno("EACCES"));
+
+    const result = await prepareDownloadDir("/readonly", "/work");
+
+    expect(result._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: `Cannot write to the --output directory ${resolve("/readonly")} (EACCES); no API request was made`,
+    });
+  });
+});
+
 describe("downloadImages", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // 例外のまま落ちると JSON ではないスタックトレースが出て、機械可読なエラーの契約が崩れる
+  it("保存先を作れなければ例外にせずエラーを返す", async () => {
+    const fs = await import("node:fs/promises");
+    vi.mocked(fs.mkdir).mockRejectedValueOnce(Object.assign(new Error("x"), { code: "EACCES" }));
+
+    const result = await downloadImages({ "1:23": "https://example.com/a.png" }, "png", "./out");
+
+    expect(result._unsafeUnwrapErr()).toEqual({
+      type: "CUSTOM_ERROR",
+      message: "Failed to create the --output directory ./out (EACCES)",
+    });
   });
 
   it("画像をダウンロードしてファイルに保存する", async () => {

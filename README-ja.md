@@ -85,6 +85,9 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2"
 
 # 同一ファイルの複数ノードを 1 回の API リクエストで取得する（URL は 1 本ずつクォートする）
 figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "https://www.figma.com/design/XXXXX/FileName?node-id=10-99"
+
+# JSON を stdout ではなく ./design 内のファイルに保存する（シェルのリダイレクトは不要）
+figma-reader inspect "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" --styles --output ./design
 ```
 
 すべての URL は同一ファイルに属している必要があります。Figma のリクエストは 1 回につき 1 ファイルしか扱えないため、複数ファイルが混在する場合は **API を呼ぶ前に** エラー終了し、どの URL がどの file key に属するかを出力します:
@@ -102,6 +105,34 @@ URL の `node-id` はカンマ区切りのリスト（`?node-id=1-2,10-99`）も
 | `--depth <N>` | ノードツリーの深さを制限（正の整数） | 制限なし |
 | `--geometry` | ベクターデータ（パス情報）を含める | `false` |
 | `--refresh` | ローカルキャッシュを使わず Figma API から取得する | `false` |
+| `--output <dir>` | JSON 出力を stdout ではなくこのディレクトリ内のファイルに書き出す。ディレクトリが無ければ作成する。`--pretty` とは併用不可 | - |
+
+#### 出力をファイルに保存する
+
+`--output <dir>` を指定すると、stdout に出るはずだった JSON がバイト単位で同じまま `<dir>` 内のファイルに書き出されます。stdout には、そのファイルの絶対パスと、同じ内容の `_cache` / `_request` だけを含む短い JSON が出ます:
+
+```json
+{ "success": true, "path": "/abs/path/design/ABC123_1-2_3f9ac2d14b7e0a91_styles.json", "_cache": { "hit": false, "cached": true, "...": "..." }, "_request": { "nodeIds": ["1:2"] } }
+```
+
+ファイル名は CLI が決めるので、`path` から読み取ってください。形式は `<fileKey>_<先頭のノード ID>[+<残りの数>]_<ハッシュ>[_styles].json` です。
+
+- 先頭のノード ID は `_request.nodeIds` の先頭です。辞書順に並んでおり、URL を渡した順とは限りません。`:` と `;` は `-` に置き換え、32 文字で切り詰めます
+- `+N` は残りのノードの数です
+- ハッシュで `--depth` と `--geometry` の違いを区別します
+- `_styles` は `--styles` を表します
+
+同じリクエストを同じディレクトリに書き出すと、前のファイルを置き換えます。
+
+次の場合は **API を呼ぶ前に** エラーになります:
+
+- 値が空、または `-` で始まる
+- 値が `~` そのもの、または `~/` で始まる（展開しないため、絶対パスか相対パスを渡してください）
+- 値が `.json` で終わる（`--output` はファイル名ではなくディレクトリを取ります）
+- `--pretty` と併用している
+- ディレクトリを作成できない、または書き込めない
+
+API 呼び出しの後でファイルを書き込めなかった場合は、stderr に JSON のエラーを出し、stdout には何も出さずに exit 1 で終了します。そのパスに既存のファイルがあれば、元のまま残ります。再実行で API リクエストを消費するかどうかは `hint` に表示されます。
 
 #### キャッシュ
 
@@ -158,7 +189,11 @@ Figma API のレートリミットは回復までに数時間かかるため、`
 
 - `FIGMA_READER_CACHE_DIR` を、sandbox が書き込みを許している絶対パスに向ける。
 
-`sandbox.excludedCommands` に `figma-reader` を追加する方法はお勧めしません。リダイレクトやパイプを含むコマンドには除外が適用されず、エージェントは通常 `inspect` の出力をリダイレクトで保存するためです。詳しくは [Claude Code の sandbox のドキュメント](https://code.claude.com/docs/en/sandboxing.md)を参照してください。
+- `sandbox.excludedCommands` に `figma-reader` を追加し、sandbox の外で実行させる。選ぶ前に次の制約を確認してください:
+  - パイプ・リダイレクト・`&&`・`;` を含むコマンドには除外が適用されません。エージェントは出力を `--output` で保存し、`figma-reader` の呼び出しを単独で実行する必要があります。
+  - `auth` を含む figma-reader 全体が、ファイルシステムとネットワークの両方で sandbox の保護なしに動きます。`--output` は、ユーザーアカウントが書き込める任意の場所にディレクトリとファイルを作れます。プロンプトインジェクションでエージェントが誘導された場所も例外ではありません。上の 2 つで足りる場合はそちらを選んでください。
+
+詳しくは [Claude Code の sandbox のドキュメント](https://code.claude.com/docs/en/sandboxing.md)を参照してください。
 
 ### `export` - 画像エクスポート
 
@@ -188,7 +223,7 @@ figma-reader export "https://www.figma.com/design/XXXXX/FileName?node-id=1-2" "h
 | `--scale <N>` | スケール（0.01〜4、png/pdf のみ） | `1` |
 | `--ids <ids>` | 追加ノード ID（カンマ区切り） | - |
 | `--download` | ファイルとしてダウンロード | `false` |
-| `--output <dir>` | ダウンロード先ディレクトリ | `.` |
+| `--output <dir>` | ダウンロード先ディレクトリ。`--download` のときは **API を呼ぶ前に** 確認する。空の値・`-` で始まる値・`~` や `~/...`（展開しない）はエラーにし、ディレクトリの作成と試し書きを行う。どれかに失敗したらリクエストを消費せずに exit 1 で終了する | `.` |
 | `--pretty` | 人間向けのテキスト形式で出力 | `false` |
 
 ### `install` - AI エージェント用スキルのインストール

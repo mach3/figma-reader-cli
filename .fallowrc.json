@@ -1,0 +1,6 @@
+{
+  "entry": ["src/index.ts"],
+  "health": {
+    "ignore": ["**/*.test.ts"]
+  }
+}

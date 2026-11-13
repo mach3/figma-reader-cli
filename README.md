@@ -244,7 +244,7 @@ Failures are reported with the underlying error code, for example `A network err
 
 To keep Figma traffic off the proxy instead, add `api.figma.com` to `NO_PROXY`.
 
-On **Node 22.21 or later but below 24.14**, the startup call is unavailable; set `NODE_USE_ENV_PROXY=1` in the environment to get the same effect. Node reads it only at process start, so it must be set before the command runs.
+On a Node that lacks that API — **22.21 up to 24.14, and 25.0 up to 25.4** — the startup call does nothing; set `NODE_USE_ENV_PROXY=1` in the environment to get the same effect. Node reads it only at process start, so it must be set before the command runs, and it prints an `EnvHttpProxyAgent is experimental` warning on stderr.
 
 ### File writes
 

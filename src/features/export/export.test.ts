@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseFigmaUrls } from "../../lib/figma-url.js";
 import {
@@ -194,6 +195,8 @@ describe("getImages", () => {
   });
 });
 
+// 期待値も path.resolve で組み立てる。直書きの POSIX パスは、Windows ではドライブレター付きの
+// パスに解決されるため一致しない（サポート対象外ではなくベストエフォートなので CI で落とさない）
 describe("prepareDownloadDir", () => {
   const errno = (code: string) => Object.assign(new Error(code), { code });
 
@@ -206,8 +209,8 @@ describe("prepareDownloadDir", () => {
 
     const result = await prepareDownloadDir("out", "/work");
 
-    expect(result._unsafeUnwrap()).toBe("/work/out");
-    expect(fs.mkdir).toHaveBeenCalledWith("/work/out", { recursive: true });
+    expect(result._unsafeUnwrap()).toBe(resolve("/work", "out"));
+    expect(fs.mkdir).toHaveBeenCalledWith(resolve("/work", "out"), { recursive: true });
     const [probePath] = vi.mocked(fs.writeFile).mock.calls[0];
     expect(fs.unlink).toHaveBeenCalledWith(probePath);
   });
@@ -242,7 +245,9 @@ describe("prepareDownloadDir", () => {
   );
 
   it("前後の空白を除いた値で保存先を解決する", async () => {
-    expect((await prepareDownloadDir(" out ", "/work"))._unsafeUnwrap()).toBe("/work/out");
+    expect((await prepareDownloadDir(" out ", "/work"))._unsafeUnwrap()).toBe(
+      resolve("/work", "out"),
+    );
   });
 
   // wx で作るので、同名の既存ファイルやシンボリックリンクを辿って切り詰めない
@@ -262,8 +267,7 @@ describe("prepareDownloadDir", () => {
 
     expect(result._unsafeUnwrapErr()).toEqual({
       type: "CUSTOM_ERROR",
-      message:
-        "Failed to create the --output directory /work/file (EEXIST); no API request was made",
+      message: `Failed to create the --output directory ${resolve("/work/file")} (EEXIST); no API request was made`,
     });
   });
 
@@ -276,7 +280,7 @@ describe("prepareDownloadDir", () => {
 
     expect(result._unsafeUnwrapErr()).toEqual({
       type: "CUSTOM_ERROR",
-      message: "Cannot write to the --output directory /readonly (EACCES); no API request was made",
+      message: `Cannot write to the --output directory ${resolve("/readonly")} (EACCES); no API request was made`,
     });
   });
 });

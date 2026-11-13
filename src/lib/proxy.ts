@@ -56,6 +56,19 @@ function hasProxyEnv(): boolean {
 }
 
 /**
+ * NO_PROXY が Figma を除外していそうか。
+ * サフィックス・ポート・ワイルドカードの完全な照合はしない（この案内に見合わない）。
+ * 目的は、すでに NO_PROXY を設定している利用者へ「NO_PROXY に足せ」と
+ * 逆向きの対処を勧めないことだけ
+ */
+function noProxyNamesFigma(): boolean {
+  return ["NO_PROXY", "no_proxy"].some((name) => {
+    const value = process.env[name]?.trim() ?? "";
+    return value === "*" || value.includes("figma.com");
+  });
+}
+
+/**
  * プロキシ環境変数を Node のグローバルエージェントと undici のディスパッチャに反映する。
  * 適用できたかどうかを返す。
  *
@@ -107,7 +120,11 @@ export function proxyHint(): string | undefined {
   }
   // NODE_USE_ENV_PROXY で既に適用済みの利用者に、それを設定しろとは案内しない
   if (proxyState.kind === "unavailable" && !usesEnvProxyFlag()) {
-    return `Proxy environment variables are set, but Node ${process.version} cannot apply them automatically. Upgrade to Node 24.14 or later, or re-run with NODE_USE_ENV_PROXY=1 (Node 22.21 or later)`;
+    return `Proxy environment variables are set, but Node ${process.version} cannot apply them automatically. Upgrade to Node 24.14 or later (25.4 or later on the 25 line), or re-run with NODE_USE_ENV_PROXY=1 (Node 22.21 or later)`;
   }
-  return "Requests go through the proxy from HTTP_PROXY/HTTPS_PROXY. Allow `api.figma.com` in the proxy or sandbox allowlist; `export --download` additionally needs the image host returned by the API, which is not `api.figma.com`. To bypass the proxy for Figma instead, add `api.figma.com` to NO_PROXY";
+  const base =
+    "Requests use the proxy from HTTP_PROXY/HTTPS_PROXY unless NO_PROXY excludes the host. Allow `api.figma.com` in the proxy or sandbox allowlist; `export --download` additionally needs the image host returned by the API, which is not `api.figma.com`";
+  return noProxyNamesFigma()
+    ? `${base}. NO_PROXY already names Figma, so this request may have bypassed the proxy and failed on a direct connection`
+    : `${base}. To keep Figma off the proxy instead, add \`api.figma.com\` to NO_PROXY`;
 }

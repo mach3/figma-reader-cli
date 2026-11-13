@@ -35,6 +35,8 @@ function clearProxyEnv(): void {
     "ALL_PROXY",
     "all_proxy",
     "NODE_USE_ENV_PROXY",
+    "NO_PROXY",
+    "no_proxy",
   ]) {
     vi.stubEnv(name, undefined);
   }

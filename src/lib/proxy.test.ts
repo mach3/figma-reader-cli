@@ -14,6 +14,8 @@ function clearProxyEnv(): void {
     "ALL_PROXY",
     "all_proxy",
     "NODE_USE_ENV_PROXY",
+    "NO_PROXY",
+    "no_proxy",
   ]) {
     vi.stubEnv(name, undefined);
   }
@@ -183,7 +185,9 @@ describe("proxyHint", () => {
     }
   });
 
-  it("適用できなかったときは Node の更新と NODE_USE_ENV_PROXY を案内する", async () => {
+  // Node 25 でも 25.4 未満は API を持たない。24.14 だけを示すと、
+  // 数値上はそれを満たしている Node 25 の利用者に意味の通らない指示になる
+  it("適用できなかったときは 24.14 と 25.4 の両方を案内する", async () => {
     clearProxyEnv();
     vi.stubEnv("http_proxy", "http://proxy.example:8080");
     const { enableProxyFromEnv, proxyHint } = await loadProxy(false);
@@ -191,6 +195,40 @@ describe("proxyHint", () => {
 
     const hint = proxyHint();
     expect(hint).toContain("24.14");
+    expect(hint).toContain("25.4");
     expect(hint).toContain("NODE_USE_ENV_PROXY=1");
+  });
+
+  // NO_PROXY で Figma を除外済みの利用者に「NO_PROXY に足せ」は逆向きの対処になる
+  it("NO_PROXY が Figma を名指していれば NO_PROXY への追加を勧めない", async () => {
+    clearProxyEnv();
+    vi.stubEnv("HTTPS_PROXY", "http://proxy.example:8080");
+    vi.stubEnv("NO_PROXY", "localhost,api.figma.com");
+    const { enableProxyFromEnv, proxyHint } = await loadProxy(true);
+    await enableProxyFromEnv();
+
+    const hint = proxyHint();
+    expect(hint).toContain("NO_PROXY already names Figma");
+    expect(hint).not.toContain("add `api.figma.com` to NO_PROXY");
+  });
+
+  it("NO_PROXY=* も Figma を除外しているものとして扱う", async () => {
+    clearProxyEnv();
+    vi.stubEnv("HTTPS_PROXY", "http://proxy.example:8080");
+    vi.stubEnv("no_proxy", "*");
+    const { enableProxyFromEnv, proxyHint } = await loadProxy(true);
+    await enableProxyFromEnv();
+
+    expect(proxyHint()).toContain("NO_PROXY already names Figma");
+  });
+
+  // 経路を断定すると、NO_PROXY で迂回している場合に原因と逆の説明になる
+  it("プロキシ経由であることを断定しない", async () => {
+    clearProxyEnv();
+    vi.stubEnv("HTTPS_PROXY", "http://proxy.example:8080");
+    const { enableProxyFromEnv, proxyHint } = await loadProxy(true);
+    await enableProxyFromEnv();
+
+    expect(proxyHint()).toContain("unless NO_PROXY excludes the host");
   });
 });

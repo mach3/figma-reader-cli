@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { defineCommand, runMain } from "citty";
+import { enableProxyFromEnv } from "./lib/proxy.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json");
@@ -20,5 +21,9 @@ const main = defineCommand({
     install: () => import("./features/install/index.js").then((m) => m.default),
   },
 });
+
+// サブコマンドは動的 import なので、ここで await しないと最初の fetch に間に合わない。
+// 位置を runMain の後ろや各コマンドの中へ移さないこと
+await enableProxyFromEnv();
 
 runMain(main);

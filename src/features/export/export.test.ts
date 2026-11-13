@@ -370,8 +370,12 @@ describe("downloadImages", () => {
     }
   });
 
-  it("fetch 例外時はスキップして failures に記録する", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network error"));
+  it("fetch 例外時はスキップし、failures に errno を添えて記録する", async () => {
+    // Node の fetch は外側に TypeError: fetch failed を投げ、errno は 1 段内側の cause にある
+    const failure = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }),
+    });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(failure);
     const result = await downloadImages(
       { "1:23": "https://example.com/image.png" },
       "png",
@@ -382,7 +386,32 @@ describe("downloadImages", () => {
     if (result.isOk()) {
       expect(result.value.successes).toHaveLength(0);
       expect(result.value.failures).toHaveLength(1);
-      expect(result.value.failures[0].reason).toBe("Error occurred during download");
+      expect(result.value.failures[0].reason).toBe("Error occurred during download (ENOTFOUND)");
+    }
+  });
+
+  // 書き込み失敗をダウンロード失敗と同じ文面にすると、ディスク不足を
+  // 「画像ホストが許可されていない」と誤診させる
+  it("書き込み失敗はダウンロード失敗と別の文面で記録する", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
+    );
+    const fs = await import("node:fs/promises");
+    vi.mocked(fs.writeFile).mockRejectedValueOnce(
+      Object.assign(new Error("no space"), { code: "ENOSPC" }),
+    );
+
+    const result = await downloadImages(
+      { "1:23": "https://example.com/image.png" },
+      "png",
+      "./out",
+    );
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.failures).toHaveLength(1);
+      expect(result.value.failures[0].reason).toContain("ENOSPC");
+      expect(result.value.failures[0].reason).not.toContain("Error occurred during download");
     }
   });
 });

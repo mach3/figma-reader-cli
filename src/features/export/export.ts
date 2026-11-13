@@ -211,19 +211,34 @@ async function downloadSingleImage(
     return { ok: false, error: { nodeId, reason: "Failed to get image URL" } };
   }
 
+  let buffer: Buffer;
   try {
     const response = await fetch(url);
     if (!response.ok) {
       return { ok: false, error: { nodeId, reason: `HTTP ${response.status}` } };
     }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const fileName = `${nodeId.replace(/:/g, "-")}.${format}`;
-    const filePath = path.join(outputDir, fileName);
-
-    await fs.writeFile(filePath, buffer);
-    return { ok: true, value: { nodeId, filePath } };
-  } catch {
-    return { ok: false, error: { nodeId, reason: "Error occurred during download" } };
+    buffer = Buffer.from(await response.arrayBuffer());
+  } catch (error: unknown) {
+    // 画像は api.figma.com とは別ホストから配信されるため、プロキシや sandbox の
+    // 許可漏れはここにしか現れない。原因が分かる errno を残す。
+    // 署名付きの url は JSON 出力とログに漏れるので含めない
+    return {
+      ok: false,
+      error: { nodeId, reason: `Error occurred during download (${getErrnoCode(error)})` },
+    };
   }
+
+  const fileName = `${nodeId.replace(/:/g, "-")}.${format}`;
+  const filePath = path.join(outputDir, fileName);
+  // 書き込み失敗をダウンロード失敗と同じ文面にすると、ディスク不足を
+  // 「画像ホストが許可されていない」と誤診させる（SKILL.md がその手順を指示している）
+  try {
+    await fs.writeFile(filePath, buffer);
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: { nodeId, reason: `Failed to write ${filePath} (${getErrnoCode(error)})` },
+    };
+  }
+  return { ok: true, value: { nodeId, filePath } };
 }

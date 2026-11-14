@@ -14,7 +14,7 @@ Primarily designed for AI agents to execute as a subprocess and obtain accurate,
 
 ## Installation
 
-Requires **Node.js 22.12 or later**. Node 18 and 20 have reached end-of-life and are no longer supported.
+Requires **Node.js 24.14 or later**. The proxy support described in [Running inside a sandbox](#running-inside-a-sandbox) relies on a standard API added in that version.
 
 The supported platforms are **macOS and Linux**. Windows is best-effort: the CLI is expected to run, but it is not an officially supported target, and the following known differences will not be addressed.
 
@@ -160,27 +160,7 @@ With `FIGMA_READER_CACHE=off`, `inspect` never touches the disk: it does not rea
 
 Both variables are read only by `inspect`; an invalid value makes `inspect` exit with a machine-readable error, while other commands are unaffected.
 
-##### Running inside a sandbox
-
-Sandboxed agent environments may refuse writes to your home directory. The sandbox in Claude Code, for example, allows writes only to the working directory and a per-session temporary directory by default, so `~/.cache/figma-reader/` cannot be written. The cache then never fills up, every call spends an API request, and `_cache.note` reports the failed write.
-
-To fix this, either:
-
-- Allow writes to the cache directory in the sandbox. In Claude Code, add it to `sandbox.filesystem.allowWrite` in your user settings (`~/.claude/settings.json`); paths there are merged with every project's settings, so this works across projects:
-
-  ```json
-  { "sandbox": { "filesystem": { "allowWrite": ["~/.cache/figma-reader"] } } }
-  ```
-
-  This is the default location. If you set `XDG_CACHE_HOME` or `FIGMA_READER_CACHE_DIR`, allow the directory named in `_cache.note` instead.
-
-- Or set `FIGMA_READER_CACHE_DIR` to an absolute path that the sandbox already allows writing to.
-
-- Or add `figma-reader` to `sandbox.excludedCommands`, so that it runs outside the sandbox. Keep these limits in mind before choosing this:
-  - The exclusion does not apply to a command line that contains a pipe, a redirect, `&&`, or `;`. Agents must save output with `--output` and run each `figma-reader` call on its own.
-  - All of figma-reader, `auth` included, then runs without the sandbox's protection for both the file system and the network. `--output` can create directories and files anywhere your user account can write — including a location an agent was steered to by a prompt injection. Prefer the two options above when they are enough.
-
-See the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing.md) for details.
+When the cache directory cannot be written — common inside an agent sandbox — see [Running inside a sandbox](#running-inside-a-sandbox).
 
 ### `export` - Export images
 
@@ -244,6 +224,49 @@ The bundled skill is in the SKILL.md-based Agent Skills format and is copied as-
 | `--agent <name>` | Target agent (`claude`, `codex`, `antigravity`) | `claude` |
 | `--dest <path>` | Install to an arbitrary path (cannot be used with `--agent`) | - |
 | `--pretty` | Output in human-readable text format | `false` |
+
+## Running inside a sandbox
+
+Agent sandboxes restrict the network and the file system separately, and figma-reader is affected by both.
+
+### Network
+
+Node's built-in `fetch` ignores proxy environment variables by default, so a CLI that does nothing about it fails with `A network error occurred` inside a sandbox that requires a proxy. figma-reader turns the proxy on at startup, so no extra setting is needed.
+
+Only the variables Node itself reads are used: `HTTP_PROXY`, `HTTPS_PROXY`, and their lowercase forms. **`ALL_PROXY` and SOCKS proxies are not read by Node**, so a sandbox configured only through those is not covered.
+
+Two hosts have to be reachable:
+
+- `api.figma.com` — every command. It is a different host from the `www.figma.com` URLs you copy out of Figma, so an allowlist built from a design URL does not cover it.
+- The image host for `export --download`. The Images API returns a signed URL on a storage host (such as `figma-alpha-api.s3.us-west-2.amazonaws.com`), not on `api.figma.com`, and the download goes there. Allowing `api.figma.com` alone lets `export` return URLs but still fail to download them.
+
+Failures are reported with the underlying error code, for example `A network error occurred (ENOTFOUND)`. `export --download` does not report them that way: each image is listed in `failures[]` with the code in `reason`.
+
+To keep Figma traffic off the proxy instead, add `api.figma.com` to `NO_PROXY`.
+
+On a Node that lacks that API — **22.21 up to 24.14, and 25.0 up to 25.4** — the startup call does nothing; set `NODE_USE_ENV_PROXY=1` in the environment to get the same effect. Node reads it only at process start, so it must be set before the command runs, and it prints an `EnvHttpProxyAgent is experimental` warning on stderr.
+
+### File writes
+
+Sandboxed agent environments may refuse writes to your home directory. The sandbox in Claude Code, for example, allows writes only to the working directory and a per-session temporary directory by default, so `~/.cache/figma-reader/` cannot be written. The cache then never fills up, every call spends an API request, and `_cache.note` reports the failed write.
+
+To fix this, either:
+
+- Allow writes to the cache directory in the sandbox. In Claude Code, add it to `sandbox.filesystem.allowWrite` in your user settings (`~/.claude/settings.json`); paths there are merged with every project's settings, so this works across projects:
+
+  ```json
+  { "sandbox": { "filesystem": { "allowWrite": ["~/.cache/figma-reader"] } } }
+  ```
+
+  This is the default location. If you set `XDG_CACHE_HOME` or `FIGMA_READER_CACHE_DIR`, allow the directory named in `_cache.note` instead.
+
+- Or set `FIGMA_READER_CACHE_DIR` to an absolute path that the sandbox already allows writing to.
+
+- Or add `figma-reader` to `sandbox.excludedCommands`, so that it runs outside the sandbox. Keep these limits in mind before choosing this:
+  - The exclusion does not apply to a command line that contains a pipe, a redirect, `&&`, or `;`. Agents must save output with `--output` and run each `figma-reader` call on its own.
+  - All of figma-reader, `auth` included, then runs without the sandbox's protection for both the file system and the network. `--output` can create directories and files anywhere your user account can write — including a location an agent was steered to by a prompt injection. Prefer the two options above when they are enough.
+
+See the [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing.md) for details.
 
 ## AI Agent Integration
 

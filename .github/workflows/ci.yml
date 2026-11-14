@@ -18,17 +18,24 @@ jobs:
       # 1ジョブの失敗で残りをキャンセルしない。
       fail-fast: false
       matrix:
-        # Node はサポート下限の系列と最新の両端のみを検証する。
-        # 中間の 24 は両端が通れば壊れる余地がほぼないため省いている。
-        # 22 は常に最新の 22.x に解決されるため engines の下限
-        # (22.12) そのものを踏むわけではない点に注意。
+        # Node はサポート下限の系列 (24) と最新 (26) の両端を検証する。
+        # 22 は engines (>=24.14) を満たさないが、engines は実行を止めない
+        # （pnpm 10.30.1 で実測: 警告のみ exit 0）ため、下限未満の Node でも
+        # 起動はする。このジョブが確かめるのは、install・lint・typecheck・test・
+        # build が Node 22 でも通ること、すなわち下限未満で即座に壊れる構文や
+        # API をソースに持ち込んでいないことだけ。setGlobalProxyFromEnv が
+        # 実際に無い状態の挙動は、テストが node:http をモックするため検証できない。
+        # 24 は常に最新の 24.x に解決されるため engines の下限
+        # (24.14) そのものを踏むわけではない点に注意。
         # macOS は第一の想定実行環境だが、Node の両端検証は ubuntu が担うため
         # 代表 1 バージョン（最新側）に絞っている。
         # Windows は回帰を気づかないまま溜めないよう代表 1 ジョブだけ
-        # 観測用に置き、全体を 4 ジョブに収めている。
+        # 観測用に置いている。
         include:
           - os: ubuntu-latest
             node-version: 22
+          - os: ubuntu-latest
+            node-version: 24
           - os: ubuntu-latest
             node-version: 26
           - os: macos-latest

@@ -1,3 +1,5 @@
+import { proxyHint } from "./proxy.js";
+
 /** アプリケーション全体で使う共通エラー型 */
 export type AppError =
   | { type: "CONFIG_READ_ERROR"; cause: unknown }
@@ -29,8 +31,13 @@ export function formatError(error: AppError): string {
         return `Figma API error (404): ${error.message}. Verify the node-id in the URL. If it is correct, the token may lack access: run \`figma-reader auth list\` to see saved profiles and retry with \`--profile <name>\` to use a different token`;
       }
       return `Figma API error (${error.status}): ${error.message}`;
-    case "NETWORK_ERROR":
-      return "A network error occurred";
+    // 原因（errno）と回復手段を必ず載せる。NETWORK_ERROR は多くの呼び出し元から出るため、
+    // 呼び出し元ごとに案内を組み立てさせず、ここに集約する
+    case "NETWORK_ERROR": {
+      const message = `A network error occurred (${getErrnoCode(error.cause)})`;
+      const hint = proxyHint();
+      return hint === undefined ? message : `${message}. ${hint}`;
+    }
     case "UNAUTHENTICATED":
       return "No token is configured. Run `figma-reader auth login`";
     case "TOKEN_NOT_FOUND":
@@ -80,13 +87,35 @@ export function outputError(pretty: boolean, error: AppError, hint?: string): vo
   }
 }
 
-/** fs 操作で投げられた値から errno のコード（EPERM など）を取り出す。取り出せなければ "unknown" */
+/** cause を辿る深さの上限。循環参照で止まらなくなるのを防ぐためだけの値 */
+const MAX_CAUSE_DEPTH = 5;
+
+/** errno 風のオブジェクトから code を読む。Error インスタンスに限らない（モックや別 realm でも読める） */
+function readErrnoCode(value: unknown): string | undefined {
+  return typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    typeof value.code === "string"
+    ? value.code
+    : undefined;
+}
+
+/** 投げられた値から errno のコード（EPERM など）を取り出す。取り出せなければ "unknown" */
 export function getErrnoCode(cause: unknown): string {
-  // Error インスタンスに限らない。モックや別 realm から来た errno 風のオブジェクトでも code は読める
-  return typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    typeof cause.code === "string"
-    ? cause.code
-    : "unknown";
+  // fetch の失敗は TypeError: fetch failed の下に undici のエラーが重なる。
+  // 層の数は失敗の種類で変わり（名前解決の失敗は 1 段、プロキシが CONNECT を
+  // 拒否した場合は 2 段）、途中の層は code に数値の 0 を持つことがあるため、
+  // 文字列の code が見つかるまで辿る。上限は循環した cause で止まらなくなるのを防ぐ
+  let current = cause;
+  for (let depth = 0; depth <= MAX_CAUSE_DEPTH; depth++) {
+    const code = readErrnoCode(current);
+    if (code !== undefined) {
+      return code;
+    }
+    if (typeof current !== "object" || current === null || !("cause" in current)) {
+      break;
+    }
+    current = current.cause;
+  }
+  return "unknown";
 }

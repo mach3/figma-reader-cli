@@ -10,7 +10,7 @@ allowed-tools: Bash(figma-reader:*)
 
 Figma's API rate limit is severe and recovery is measured in **hours**. Treat every call as a scarce shared resource, not a free lookup.
 
-**Two independent budgets.** `inspect` spends `/v1/files`; `export` spends `/v1/images`. Exhausting one does not block the other — an `export` was observed succeeding while `inspect` was already returning 429.
+**Two independent budgets.** `inspect` spends `/v1/files`; `export` spends `/v1/images`. Exhausting one does not block the other — an `export` was observed succeeding while `inspect` was already returning 429. Figma meters each endpoint against its own tier, and these two are in the scarcest one; `me` is not (see hard rule 7).
 
 **The budget is small.** Observed in practice: one `inspect --styles` on a frame plus one `inspect --depth 2` on a page was enough to exhaust the files budget. A single `export` was enough to exhaust the images budget.
 
@@ -40,7 +40,7 @@ This changes nothing about hard rules 3 and 5: plan the whole fetch before the f
    - Product-specific artwork (the product's own logo, wordmark, illustrations) → **the only category that genuinely requires Figma.**
 
    Check the repository before exporting — the asset is often already committed.
-7. **`figma-reader me` costs a call too.** Run it only when diagnosing an auth failure, never as a routine preflight.
+7. **`figma-reader me` does not spend the `inspect` / `export` budget — but run it only when diagnosing an auth failure.** `/v1/me` is metered against a far more generous tier than `/v1/files` and `/v1/images`, so calling it does not bring a 429 on those any closer. The reason to skip it is not cost: it proves nothing that your first `inspect` would not already tell you, and a green `me` does not mean the token can read the file you are about to request (Figma answers 404, not 403, for a file the token cannot see — see [Error handling](#error-handling)). As a routine preflight it is a step that cannot fail usefully.
 8. **On a cache hit, tell the user how old the data is, before you implement from it.** Every `inspect` response carries `_cache`; when `hit` is `true`, read `ageSeconds` and say so in your own words ("this design data was fetched 3 days ago"). There is no expiry, so a hit can be arbitrarily stale and the CLI will not warn you beyond that field. If the age is large enough that the design plausibly changed, **ask the user** whether it has — do not spend a call to find out. Use `--refresh` only when you or the user already know the design changed; it is a full-price request, so using it "just to be sure" is exactly the careless spending hard rule 1 exists to prevent.
 
 ### Preflight before your first `inspect`
@@ -68,7 +68,7 @@ figma-reader inspect "https://www.figma.com/design/XXXXX/File-Name?node-id=1:2"
 figma-reader export "https://www.figma.com/design/XXXXX/File-Name?node-id=1:2" --format png --scale 2 --download --output ./assets
 ```
 
-There is deliberately no auth check here. `figma-reader me` spends a call and proves nothing that the `inspect` above would not tell you — run it only when diagnosing a failure (hard rule 7).
+There is deliberately no auth check here. `figma-reader me` proves nothing that the `inspect` above would not tell you — run it only when diagnosing a failure (hard rule 7).
 
 ## Commands
 
@@ -391,7 +391,12 @@ When `hint` is present, re-run the same command **without** `--refresh` instead 
 
 Common errors and actions:
 - **429 / 503 (rate limited)**: Do **not** retry and do **not** wait — retrying while limited extends the lock (observed 27,000 s → 96,000 s). Stop immediately, report the lock (quoting `retryAfter` only if it is present — see above), and ask the user to supply what is missing from the Figma app (browser/desktop): **Copy/Paste as → Copy as SVG**, or the Export panel. The app does not consume the API budget. Do not substitute hand-written or recalled paths for artwork you failed to fetch — a wrong glyph passes lint, typecheck, and build silently
-- **`A network error occurred`**: The request never reached Figma, so **no budget was spent** — this is not a rate limit and not an auth failure, despite arriving in the same shape. The usual cause is a sandbox or proxy that does not allow the API host: the CLI talks to `api.figma.com`, which is a different host from the `www.figma.com` URLs you were given, so an allowlist built from the design URL will not cover it. Report it as an environment problem and ask the user to allow `api.figma.com`; do not retry in a loop, and do not treat it as a reason to fall back to recalled data
+- **`A network error occurred (<code>)`**: The request never reached Figma, so **no budget was spent** — this is not a rate limit and not an auth failure, despite arriving in the same shape. The code in parentheses (`ENOTFOUND`, `ECONNREFUSED`, and so on) is the reason, and there are two causes to tell apart:
+  - **The host is not allowed.** The CLI talks to `api.figma.com`, which is a different host from the `www.figma.com` URLs you were given, so an allowlist built from the design URL will not cover it. Report it as an environment problem and ask the user to allow `api.figma.com`.
+  - **The proxy was not applied.** On Node below 24.14 the CLI cannot pick up `HTTP_PROXY` / `HTTPS_PROXY` by itself. The message says so and names the fix (upgrade Node, or set `NODE_USE_ENV_PROXY=1`); pass that on to the user rather than re-deriving it.
+
+  Either way: do not retry in a loop, do not treat it as a reason to fall back to recalled data, and **do not edit sandbox or settings files yourself** — widening an allowlist is the user's decision.
+- **`export --download` that fails on every node**: the download does not go to `api.figma.com`. The Images API returns a signed URL on a storage host (such as `figma-alpha-api.s3.us-west-2.amazonaws.com`), so an environment that allows only `api.figma.com` can return URLs and still download nothing. These failures never surface as `A network error occurred`: each node lands in `failures[]` with the code in its `reason`, and the command exits 1. Quote the `reason` to the user and ask for the image host to be allowed; the URLs themselves are signed, so do not paste them into chat or a file
 - **Authentication error**: Ask the user to run `figma-reader auth login`
 - **403 (invalid token)**: The token itself is invalid or expired. Another saved profile may work. Fallback procedure:
   1. `figma-reader auth list` to see saved profiles
@@ -437,7 +442,7 @@ figma-reader export "https://www.figma.com/design/XXXXX/File?node-id=1:2" \
   --ids "10:2,10:3,10:4" --format svg --download --output "$WORKDIR"
 ```
 
-Skip `figma-reader me` — it spends a call and proves nothing that call 1 would not have told you.
+Skip `figma-reader me` — it proves nothing that call 1 would not have told you (hard rule 7).
 
 **`--format` applies to the whole request, so a PNG reference shot of the frame cannot ride along with SVG assets.** It is genuinely a third call:
 
